@@ -33,6 +33,11 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env
 
+# cópia pristina do banco (sem views) — só rede de segurança local para reset manual; data/cambara_teste_tecnico.db (COM as views) É commitado de propósito
+data/cambara_teste_tecnico.pristine.db
+
+/refs
+
 # vercel
 .vercel
 
