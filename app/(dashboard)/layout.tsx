@@ -33,6 +33,12 @@ export default async function DashboardLayout({
           >
             Analítico
           </Link>
+          <Link
+            href="/assistente"
+            className="text-muted-foreground hover:text-foreground"
+          >
+            Assistente
+          </Link>
         </nav>
         <div className="flex items-center justify-between gap-3 sm:justify-end">
           <span className="text-sm font-medium">{session.nome}</span>
