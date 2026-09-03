@@ -36,7 +36,15 @@ npm run lint           # ESLint (base eslint-config-next)
 npm run format          # Prettier --write
 npm run format:check    # Prettier --check
 npm run build           # build de produção
+npm run setup:views     # recria as 3 views de normalização (idempotente, ver abaixo)
 ```
+
+**Reset a partir da cópia pristina**: `data/cambara_teste_tecnico.pristine.db` (não commitada, só
+local) é o banco original sem as views, mantida como rede de segurança. Se precisar resetar o
+arquivo de trabalho, copie a pristina por cima de `data/cambara_teste_tecnico.db` e rode
+`npm run setup:views` — o script recria as 3 views de normalização (definidas em
+`scripts/setup-views.ts`) checando antes se cada uma já existe, sem duplicar nem falhar se rodado
+mais de uma vez.
 
 ## Autenticação
 
