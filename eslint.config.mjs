@@ -16,6 +16,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Teste E2E persistido (AGENTS.md seção 2): depende de `@playwright/test`,
+    // que não é devDependency do projeto — lint quebraria para quem não
+    // rodou `npx playwright` localmente.
+    "tests/e2e/**",
+    "playwright.config.ts",
   ]),
 ]);
 
