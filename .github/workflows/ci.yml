@@ -18,20 +18,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20.9.0"
-          cache: "npm"
+          cache: "pnpm"
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Format check (Prettier)
-        run: npm run format:check
+        run: pnpm run format:check
 
       - name: Lint (ESLint)
-        run: npm run lint
+        run: pnpm run lint
 
       # DATABASE_PATH é obrigatório aqui: lib/db/connection.ts instancia a conexão
       # better-sqlite3 de forma EAGER (no topo do módulo, fora de função — ver
@@ -55,6 +60,6 @@ jobs:
       # sozinho sobre segredos. Se uma sessão futura tornar SESSION_SECRET necessário em
       # build-time (ex.: import eager em algum outro módulo), este step precisará ser revisado.
       - name: Build (Next.js)
-        run: npm run build
+        run: pnpm run build
         env:
           DATABASE_PATH: data/cambara_teste_tecnico.db
