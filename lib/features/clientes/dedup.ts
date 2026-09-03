@@ -14,15 +14,18 @@ export interface Cliente {
 
 const EMAIL_ALTA_CONFIANCA = /^contato\d+@exemplo\.com$/;
 
+/** Normalização de texto compartilhada (dedup e busca de cliente no formulário de venda). */
+export function normalizarTexto(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/\s+/g, " ");
+}
+
 export function chaveDedup(nome: string, cidade: string): string {
-  const norm = (s: string) =>
-    s
-      .trim()
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
-      .replace(/\s+/g, " ");
-  return `${norm(nome)}|${norm(cidade)}`;
+  return `${normalizarTexto(nome)}|${normalizarTexto(cidade)}`;
 }
 
 export type ConfiancaDedup = "alta" | "baixa";

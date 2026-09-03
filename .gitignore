@@ -44,3 +44,13 @@ data/cambara_teste_tecnico.pristine.db
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# sqlite WAL/SHM (arquivos de journal temporários, não fazem parte do dado)
+data/*.db-wal
+data/*.db-shm
+
+# Playwright (ferramenta de sessão via npx — ver AGENTS.md seção 2)
+/test-results
+/playwright-report
+/blob-report
+/playwright/.cache
