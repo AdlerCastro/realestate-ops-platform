@@ -45,6 +45,7 @@ pnpm format          # Prettier --write
 pnpm format:check    # Prettier --check
 pnpm build           # build de produção
 pnpm setup:views     # recria as 3 views de normalização (idempotente, ver abaixo)
+pnpm test:e2e        # teste E2E persistido de venda/distrato (ver seção "Camada de escrita")
 ```
 
 **Reset a partir da cópia pristina**: `data/cambara_teste_tecnico.pristine.db` (não commitada, só
@@ -125,18 +126,20 @@ fluxos de escrita da aplicação: `POST /api/vendas` e `POST /api/distratos`
 - **Não corrige o histórico legado**: as 122 unidades presas em `distrato` no dado legado (ver
   "Limitações conhecidas") não são reclassificadas por este código — a regra só passa a valer
   corretamente para ações novas feitas pela aplicação a partir de agora.
-- **Teste E2E persistido**: diferente do restante da aplicação (Playwright só ad-hoc via `npx`,
-  sem virar dependência — ver `AGENTS.md` seção 2), o fluxo de venda/distrato tem um teste
-  Playwright **commitado** em `tests/e2e/vendas-distratos.spec.ts`, por ser o componente mais
-  observado da avaliação. Cobre: vender uma unidade disponível com sucesso; tentar vender a mesma
-  unidade de novo e receber erro de negócio (409, não sucesso); distratar a venda e confirmar que
-  a unidade volta a `disponivel`. Roda isolado, sem Playwright entrar como devDependency do
-  projeto. Versão do Playwright fixada explicitamente no comando (`@1.62.1`, a versão usada para
-  validar os 3 cenários) — evita que uma execução futura puxe uma versão diferente via `npx`:
+- **Teste E2E persistido**: o fluxo de venda/distrato tem um teste Playwright **commitado** em
+  `tests/e2e/vendas-distratos.spec.ts`, por ser o componente mais observado da avaliação. Cobre:
+  vender uma unidade disponível com sucesso; tentar vender a mesma unidade de novo e receber erro
+  de negócio (409, não sucesso); distratar a venda e confirmar que a unidade volta a `disponivel`.
+  **Atualização (sessão 5)**: Playwright passou a ser devDependency real do projeto
+  (`@playwright/test@1.62.1`, versão pinada — a mesma usada para validar os 3 cenários), a pedido
+  explícito do humano, revertendo a decisão original de mantê-lo como ferramenta de sessão só via
+  `npx` (ver `AGENTS.md` seção 2 para o detalhe da mudança). O resto da aplicação continua validado
+  via Playwright ad-hoc e descartável (não persistido) — só esse teste é commitado.
   ```bash
-  npx playwright@1.62.1 install chromium   # uma vez, baixa o browser
+  pnpm install                             # já instala o Playwright junto (devDependency)
+  npx playwright@1.62.1 install chromium   # uma vez, baixa o browser (não vem no pnpm install)
   pnpm dev                                 # em outro terminal — o teste espera localhost:3000
-  npx playwright@1.62.1 test tests/e2e/
+  pnpm test:e2e                            # roda o teste (equivalente a npx playwright@1.62.1 test tests/e2e/)
   ```
   O teste usa a unidade `id = 4` do banco de trabalho; como o próprio teste distrata a venda que
   cria, ele é seguro para rodar em sequência sem precisar resetar o banco a cada execução.
@@ -379,9 +382,9 @@ consegui responder com confiança nos dados disponíveis".
 - **CI (`.github/workflows/ci.yml`) ainda não roda testes E2E** — só lint, format check e build,
   conforme escopo do agente devops (`AGENTS.md` seção 5). O teste Playwright persistido do fluxo
   de venda/distrato (`tests/e2e/vendas-distratos.spec.ts`, ver `AGENTS.md` seção 2 e seção "Camada
-  de escrita" acima) já existe e passa localmente via `npx playwright@1.62.1 test tests/e2e/`, mas
-  fica em aberto para decisão humana se ele entra no pipeline automatizado ou continua validação
-  ad-hoc de sessão. O step de
+  de escrita" acima) já existe e passa localmente via `pnpm test:e2e`, mas fica em aberto para
+  decisão humana se ele entra no pipeline automatizado ou continua validação ad-hoc de sessão. O
+  step de
   `next build` no CI define `DATABASE_PATH` apontando para o `data/cambara_teste_tecnico.db`
   commitado (necessário porque `lib/db/connection.ts` abre a conexão de forma eager, no import do
   módulo) — não define `SESSION_SECRET`/`GROQ_API_KEY`, confirmado dispensável para o build.
