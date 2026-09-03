@@ -12,9 +12,12 @@ dashboards por área) ainda não foram implementadas.
 
 ## Instalação e execução local
 
-Pré-requisitos: Node.js 20.9+. O arquivo de trabalho `data/cambara_teste_tecnico.db` (com as 3
-views de normalização, ver seção abaixo) já vem commitado no repositório — não é necessário
-providenciá-lo separadamente.
+Pré-requisitos: Node.js 22.14+ (piso elevado de 20.9 nesta sessão: `better-sqlite3@13.0.3` inclui
+um binário pré-compilado que exige NAPI versão 10, disponível a partir do Node 22.14.0 — versões
+anteriores, incluindo toda a série 20.x, sofrem SIGSEGV ao abrir a conexão com o banco; ver
+`.github/workflows/ci.yml` para o diagnóstico completo). O arquivo de trabalho
+`data/cambara_teste_tecnico.db` (com as 3 views de normalização, ver seção abaixo) já vem
+commitado no repositório — não é necessário providenciá-lo separadamente.
 
 ```bash
 npm install

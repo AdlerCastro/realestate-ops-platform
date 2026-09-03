@@ -23,10 +23,19 @@ jobs:
         with:
           version: 9
 
+      # Node >= 22.14.0 é obrigatório: better-sqlite3@13.0.3 vem com um binário N-API
+      # pré-compilado (prebuilds/linux-x64.node) que exige NAPI_VERSION 10. Confirmado
+      # empiricamente (process.versions.napi) que Node 22.13.0 ainda expõe NAPI 9 e só a partir
+      # de 22.14.0 o runtime passa a expor NAPI 10 — rodar esse pacote com Node < 22.14.0 (ex.:
+      # a versão anterior deste pipeline, 20.9.0) causa SIGSEGV dentro de
+      # napi_module_register_by_symbol / node::binding::DLOpen assim que `new Database(...)` é
+      # chamado pela primeira vez (aqui, via a conexão eager de lib/db/connection.ts, disparada
+      # durante "Collecting page data" do `next build`). Fonte única da versão: .nvmrc (ver
+      # também README.md, seção de pré-requisitos).
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20.9.0"
+          node-version-file: ".nvmrc"
           cache: "pnpm"
 
       - name: Install dependencies
