@@ -65,13 +65,9 @@ mais de uma vez.
   `engenharia@cambara-teste.com.br`, `financeiro@cambara-teste.com.br`,
   `candidato@cambara-teste.com.br` (este último com papel `diretoria`, provavelmente a conta mais
   adequada para avaliar a aplicação).
-- **Limitação deliberada**: autenticação por e-mail/senha com hash `bcrypt` e cookie de sessão
-  assinado (HMAC-SHA256 via `node:crypto`, sem dependência nova) — não há OAuth/SSO nem
-  revogação de sessão server-side antes da expiração (8h). Aceitável neste escopo: aplicação
-  interna, sem dados sensíveis além de id/nome/papel no cookie.
-- **Sem RBAC nesta fase**: qualquer usuário autenticado acessa as rotas em `app/(dashboard)/` —
-  não há distinção de permissão por `papel` ainda. Isso é deliberado e está fora de escopo desta
-  sessão (ver `AGENTS.md`).
+- **Limitações de autenticação (ausência de OAuth/SSO, de revogação de sessão server-side e de
+  RBAC)**: descritas em "## Limitações conhecidas" abaixo, junto com as demais limitações
+  conhecidas do projeto.
 - **Proteção de rota via `getSession()` em `app/(dashboard)/layout.tsx`, não via
   `middleware.ts`/`proxy.ts`**: nesta versão do Next.js (16.3.4), `middleware.ts` está
   **deprecated**, renomeado para `proxy.ts` — e o sucessor já roda no runtime Node.js por padrão
@@ -260,3 +256,10 @@ views e a lógica de dedup são definitivos — validados contra `data/cambara_t
   `next build` no CI define `DATABASE_PATH` apontando para o `data/cambara_teste_tecnico.db`
   commitado (necessário porque `lib/db/connection.ts` abre a conexão de forma eager, no import do
   módulo) — não define `SESSION_SECRET`/`GROQ_API_KEY`, confirmado dispensável para o build.
+- **Limitação deliberada**: autenticação por e-mail/senha com hash `bcrypt` e cookie de sessão
+  assinado (HMAC-SHA256 via `node:crypto`, sem dependência nova) — não há OAuth/SSO nem
+  revogação de sessão server-side antes da expiração (8h). Aceitável neste escopo: aplicação
+  interna, sem dados sensíveis além de id/nome/papel no cookie.
+- **Sem RBAC nesta fase**: qualquer usuário autenticado acessa as rotas em `app/(dashboard)/` —
+  não há distinção de permissão por `papel` ainda. Isso é deliberado e está fora de escopo desta
+  sessão (ver `AGENTS.md`).
