@@ -163,6 +163,85 @@ diverge do número histórico da análise original (1.436 / R$ 3.176.094,10, que
 baixa confiança juntas) — divergência esperada por mudança de critério, não um erro de query. Ver
 nota completa na regra B4 de `docs/regras-de-negocio.md`.
 
+## Assistente de linguagem natural
+
+Página em `/assistente` (`app/(dashboard)/assistente/`) — pergunta em português sobre os dados,
+somente leitura, duas chamadas à API da Groq por pergunta:
+
+1. **Call 1** (`openai/gpt-oss-120b`) — pergunta → SQL, saída forçada em JSON
+   (`response_format: {type: "json_object"}`). O prompt de sistema
+   (`lib/features/assistente/prompts.ts`) expõe `v_unidades_norm`, `v_vendas_norm` e
+   `v_financeiro_reconciliado` (views normalizadas) **e também** as tabelas cruas
+   `empreendimentos`, `obra_andamento` e `clientes` — as views só cobrem
+   unidades/vendas/financeiro, então perguntas sobre nome/cidade de empreendimento ou estouro de
+   custo não têm resposta possível vendo só as 3 views. `unidades`, `vendas` e `financeiro_mensal`
+   (tabelas brutas, com grafia suja) ficam de fora do schema exposto — só as views correspondentes.
+2. **Execução** contra `lib/db/connection-readonly.ts` — conexão SQLite **separada** da escrita,
+   aberta com `{ readonly: true }`. Guardrail extra antes de executar: a consulta precisa começar
+   com `SELECT` e não pode conter mais de um comando (`;`) — defesa em profundidade, a proteção
+   real é o modo readonly do driver. Se a execução falhar (erro de sintaxe, coluna inexistente), o
+   erro é reenviado ao LLM pedindo correção, **1 retry apenas**; se falhar de novo, a resposta ao
+   usuário é "não consegui responder com confiança nos dados disponíveis" — nunca uma resposta
+   incerta forçada.
+3. **Call 2** (`openai/gpt-oss-20b`) — linhas retornadas + pergunta original → resposta em
+   português, parafraseando só o que veio da query.
+
+A UI sempre mostra os três juntos: resposta em português, a SQL efetivamente executada (ou a que
+falhou, se caiu no caso "não consegui responder"), e a tabela de linhas retornadas.
+
+**Sem view de deduplicação de cliente**: `clientes` entra no schema do prompt sem tratamento — o
+prompt de sistema instrui explicitamente que este assistente não tem acesso à lógica de dedup
+(`chaveDedup`/`classificarGruposDedup`, TypeScript, ver seção acima). Perguntas sobre
+clientes únicos/duplicados geram SQL de contagem bruta, e a resposta em português é instruída a
+avisar que esse número não reflete a deduplicação aplicada no dashboard analítico (`/analitico`).
+
+**Troca de modelo em relação ao planejado originalmente**: os nomes registrados nas instruções do
+projeto (`llama-3.3-70b-versatile` para a Call 1, `llama-3.1-8b-instant` para a Call 2) foram
+desativados pela Groq em 16/08/2026 (confirmado contra `console.groq.com/docs/deprecations` nesta
+sessão, 03/09/2026 — já depois do shutdown). Substituídos pelos sucessores recomendados pela
+própria Groq: `openai/gpt-oss-120b` (Call 1) e `openai/gpt-oss-20b` (Call 2), ambos com contexto de
+131.072 tokens e compatíveis com `response_format: {type: "json_object"}`.
+
+**Teste manual das 4 perguntas de negócio — concluído em 4 rodadas, 2 divergências abertas**:
+testado com chave Groq real (detalhamento completo, incluindo SQL gerada e números exatos, em
+`docs/log-tecnico-decisoes.md` §11). Resumo:
+
+- **1ª rodada** (fraseado livre): velocidade de vendas e estouro de custo bateram exatamente;
+  duplicidade de cliente e divergência financeira bateram na contagem, mas erraram no valor
+  agregado — corrigido via 2 instruções genéricas no prompt de sistema (`SYSTEM_PROMPT_SQL`):
+  "média por X" sempre `SUM(valor)/COUNT(DISTINCT id_do_X)`, nunca `AVG()`; somas de
+  desvio/divergência sempre `SUM(ABS(coluna))`, nunca `SUM(coluna)` puro.
+- **2ª rodada** (as 4 perguntas literais do enunciado + variações de fraseado): confirmou as duas
+  correções acima generalizando bem — mas expôs 2 divergências novas só com o fraseado literal: (1)
+  "unidades vendidas **líquidas de distrato**" fazia o modelo subtrair a contagem de distrato da de
+  vendida, quando `status_canonico = 'vendida'` já é líquido por construção da view; (2) "em quantos
+  **meses**/empreendimentos isso ocorre" contava meses-calendário distintos (29) em vez de linhas
+  divergentes empreendimento×mês (63). Corrigidas via 2 novas instruções genéricas: valores de
+  `status_canonico` são mutuamente exclusivos (então "líquido de X" sobre um status-alvo já exclui
+  X, sem subtração); "mês" em perguntas sobre `v_financeiro_reconciliado` significa uma linha da
+  tabela, não mês-calendário distinto.
+- **3ª rodada** (reteste + 2 variações novas de Q1 e Q4, fraseado diferente das rodadas anteriores):
+  confirmou as duas correções da 2ª rodada generalizando corretamente (inclusive a pergunta 1
+  literal, sem subtração no numerador) — mas expôs uma divergência nova, não corrigida (ver
+  "Limitações conhecidas"): fraseados como "descontando os distratos" ou "excluindo as unidades
+  distratadas" aplicados à velocidade de vendas fazem o modelo filtrar as unidades em `distrato` do
+  **denominador** (total ofertado), violando a regra B1 (total ofertado = todas as unidades, sem
+  exclusão por status). Mecanismo diferente do bug corrigido na 2ª rodada (aquele era subtração no
+  numerador; este é filtro no denominador) — reproduzido de forma idêntica em 2 fraseados
+  independentes.
+- **4ª rodada** (revisão humana identificou que o "ticket médio bruto" da pergunta 3 usava
+  `COUNT(cliente_id)` sem `DISTINCT` sobre as vendas — matematicamente idêntico a `AVG()`, o mesmo
+  bug da 1ª rodada escapando da instrução por não usar o literal `AVG()`): a regra do prompt foi
+  reescrita para proibir o padrão semântico ("nunca dividir pelo número de linhas/transações, seja
+  via `AVG()`, `COUNT(coluna)` sem `DISTINCT`, ou `COUNT(*)`"), não só a sintaxe. Reteste confirmou
+  que esse padrão específico não voltou a aparecer, mas expôs uma variação nova do mesmo tipo de
+  erro (ver "Limitações conhecidas"): o denominador passou a usar `COUNT(*)`/`COUNT(DISTINCT ...)`
+  sobre a tabela `clientes` inteira (todos os 2.691 cadastrados), não sobre os clientes que
+  efetivamente compraram — produzindo ticket médio ~R$1,8M em vez do correto ~R$3,15M. Não é o
+  mesmo mecanismo do bug original (que era ausência de `DISTINCT`), é dividir pela população
+  errada. Não corrigido nesta sessão — última rodada de validação de prompt planejada para a sessão
+  4; tempo restante dedicado à sessão 5.
+
 ## Operação/Runbook
 
 **Resetar o banco de trabalho a partir da cópia pristina**: copiar `data/cambara_teste_tecnico.
@@ -294,3 +373,42 @@ decisões de implementação e correções, ver
 - **Sem RBAC nesta fase**: qualquer usuário autenticado acessa as rotas em `app/(dashboard)/` —
   não há distinção de permissão por `papel` ainda. Isso é deliberado e está fora de escopo desta
   sessão (ver `AGENTS.md`).
+- **Assistente: "descontando"/"excluindo" distratos filtra o denominador da velocidade de vendas
+  (Bug 6, não corrigido)** — perguntar "Descontando os distratos, quais os 3 empreendimentos com
+  pior velocidade de vendas?" ou "Excluindo as unidades distratadas, qual a velocidade de vendas de
+  cada empreendimento?" faz o LLM gerar
+  `SUM(vendida) / SUM(CASE WHEN status_canonico != 'distrato' THEN 1 ELSE 0 END)` — filtrando as
+  unidades em `distrato` do total considerado (denominador), em vez de usar todas as unidades como
+  a regra B1 (`docs/regras-de-negocio.md`) exige ("total ofertado" = todas as unidades cadastradas,
+  sem exclusão por status). Produz velocidade maior que a correta (ex.: Essência Living 7,03% em
+  vez de 6,84%). Reproduzido de forma idêntica nos dois fraseados testados — não é acaso isolado.
+  Mecanismo diferente de um bug já corrigido nesta sessão (aquele subtraía no numerador quando a
+  pergunta usava "líquido de X"; este filtra o denominador quando a pergunta usa
+  "descontando"/"excluindo"). Detalhe completo, incluindo a SQL gerada e a validação contra o
+  banco, em `docs/log-tecnico-decisoes.md` §11. Decisão de correção pendente — não ajustado
+  silenciosamente, para não consumir mais tempo de correção sem teste automatizado por trás antes
+  do prazo de 04/09.
+- **Assistente: "ticket médio" pode dividir pelo total de clientes cadastrados, não pelos que
+  compraram (não corrigido)** — na pergunta 3 literal do enunciado, a rodada final gerou
+  `SUM(valor_venda) / COUNT(*) FROM clientes` (2.691, todos os cadastrados) em vez de
+  `SUM(valor_venda) / COUNT(DISTINCT cliente_id)` sobre as vendas (1.535, só quem comprou) —
+  produzindo ticket médio ≈R$1,80M em vez do correto ≈R$3,15M. Isso veio depois de uma correção
+  nesta mesma sessão que eliminou uma forma anterior do mesmo tipo de erro (dividir por
+  `COUNT(coluna)` sem `DISTINCT` sobre a tabela de vendas, matematicamente igual a `AVG()`) — a
+  correção funcionou para esse padrão específico, mas o modelo encontrou uma variação nova:
+  `COUNT(*)`/`COUNT(DISTINCT ...)` sobre a população errada (todos os clientes cadastrados, não os
+  compradores). SQL exata e validação contra o banco em `docs/log-tecnico-decisoes.md` §11. Não
+  corrigido — esta foi a última rodada de ajuste de prompt planejada para a sessão 4.
+- **Assistente: aviso de dedup depende do julgamento do LLM, não de checagem no código** — o
+  prompt de sistema da Call 2 instrui a avisar quando a pergunta é sobre clientes
+  únicos/duplicados, mas nada no código força esse aviso (não há detecção de palavra-chave do lado
+  da aplicação) — se o LLM não seguir a instrução, o aviso pode não aparecer numa resposta
+  específica. Decisão consciente: mover essa checagem para o código exigiria replicar heurística de
+  classificação de pergunta fora do LLM, o que não estava no escopo desta sessão. Confirmado que o
+  aviso apareceu em todas as respostas testadas sobre dedup até agora (§11), mas isso não é uma
+  garantia estrutural.
+- **Assistente: retry após rate limit (429) não usa backoff** — o guardrail de 1 retry tenta de
+  novo imediatamente após qualquer falha, incluindo 429; sem espera entre tentativas, o retry após
+  rate limit tende a falhar de novo pelo mesmo motivo. A mensagem ao usuário nesse caso já é
+  diferenciada ("muitas perguntas em sequência..."), mas o comportamento de retry em si não foi
+  alterado — fora do escopo da correção desta sessão.
