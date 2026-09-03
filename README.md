@@ -6,10 +6,14 @@ engenharia e financeiro uma visão operacional dos empreendimentos, vendas, unid
 financeiros, sem alterar a estrutura ou os dados originais do banco além de exceções explícitas e
 documentadas.
 
-Esta sessão cobriu a camada de escrita (venda e distrato) — o componente mais observado da
-avaliação. Sessões anteriores cobriram o scaffolding inicial (Next.js, banco, tema), a
-autenticação e a normalização de dado (views + dedup de cliente). A camada analítica (dashboards)
-e o assistente de linguagem natural ainda não foram implementados.
+Os 4 componentes obrigatórios do enunciado estão implementados: **autenticação** (login por
+e-mail/senha com sessão em cookie assinado — ver seção "Autenticação"), **camada analítica**
+(dashboard em `/analitico` respondendo as 4 perguntas de negócio do enunciado — ver seção "Camada
+analítica"), **camada de escrita** (fluxo de venda e distrato, o componente mais observado da
+avaliação — ver seção "Camada de escrita") e **assistente de linguagem natural** (pergunta em
+português sobre os dados via duas chamadas à Groq, texto-para-SQL e SQL-para-resposta — ver seção
+"Assistente de linguagem natural"). Esta sessão (5, final) é de revisão e consolidação da
+documentação, sem código novo.
 
 ## Instalação e execução local
 
@@ -334,6 +338,21 @@ decisões de implementação e correções, ver
 
 ## Limitações conhecidas
 
+**Nota de calibração de confiança — cobertura de teste do assistente de linguagem natural**: os
+testes manuais cobriram aproximadamente 17 fraseados distintos ao longo de 4 rodadas (5 na 1ª
+rodada, 8 novos na 2ª, 4 novos na 3ª, mais retestes pontuais na 4ª) — não um levantamento
+exaustivo do espaço de fraseado possível para as 4 perguntas de negócio. O padrão observado nas 4
+rodadas foi consistente: cada correção de prompt eliminou exatamente o erro que a expôs, mas a
+rodada seguinte, testando um fraseado novo da mesma pergunta, expôs uma variação diferente do
+mesmo tipo de erro de agregação (rodada 1: `AVG()` direto; rodada 2: subtração indevida no
+numerador e contagem de mês-calendário em vez de linha; rodada 3: filtro indevido no denominador;
+rodada 4: `COUNT()` sem `DISTINCT` disfarçado, depois divisão pela população errada de clientes).
+Isso indica que o espaço de erro de agregação foi reduzido a cada rodada, não esgotado — portanto
+perguntas do avaliador com fraseado fora dos ~17 testados aqui carregam risco real de **erro
+silencioso de definição** (um número plausível, mas matematicamente errado, sem nenhum sinal
+visível de falha na resposta), e não apenas risco de indisponibilidade ou da resposta padrão "não
+consegui responder com confiança nos dados disponíveis".
+
 - **Velocidade de vendas não é normalizada por tempo desde o lançamento** — comparar
   empreendimentos pela contagem/ritmo bruto de vendas mistura "vende mal" com "foi lançado há
   pouco tempo". Normalização por `data_lancamento` fica para sessão futura de métricas.
@@ -392,7 +411,12 @@ decisões de implementação e correções, ver
   compraram (não corrigido)** — na pergunta 3 literal do enunciado, a rodada final gerou
   `SUM(valor_venda) / COUNT(*) FROM clientes` (2.691, todos os cadastrados) em vez de
   `SUM(valor_venda) / COUNT(DISTINCT cliente_id)` sobre as vendas (1.535, só quem comprou) —
-  produzindo ticket médio ≈R$1,80M em vez do correto ≈R$3,15M. Isso veio depois de uma correção
+  produzindo ticket médio ≈R$1,80M em vez do correto ≈R$3,15M. **Nota sobre o 1.535 vs. o 1.440 da
+  seção "Camada analítica"**: não é inconsistência, são dois universos diferentes por dois
+  critérios independentes — confirmado contra o banco nesta sessão. 1.535 é
+  `COUNT(DISTINCT cliente_id)` bruto sobre **todas** as linhas de `v_vendas_norm` (`ativa` **e**
+  `distrato`), sem nenhuma fusão de duplicata; 1.440 filtra só `status_canonico = 'ativa'` **e**
+  aplica a fusão de dedup de alta confiança do dashboard (89 grupos). Isso veio depois de uma correção
   nesta mesma sessão que eliminou uma forma anterior do mesmo tipo de erro (dividir por
   `COUNT(coluna)` sem `DISTINCT` sobre a tabela de vendas, matematicamente igual a `AVG()`) — a
   correção funcionou para esse padrão específico, mas o modelo encontrou uma variação nova:
@@ -404,9 +428,10 @@ decisões de implementação e correções, ver
   únicos/duplicados, mas nada no código força esse aviso (não há detecção de palavra-chave do lado
   da aplicação) — se o LLM não seguir a instrução, o aviso pode não aparecer numa resposta
   específica. Decisão consciente: mover essa checagem para o código exigiria replicar heurística de
-  classificação de pergunta fora do LLM, o que não estava no escopo desta sessão. Confirmado que o
-  aviso apareceu em todas as respostas testadas sobre dedup até agora (§11), mas isso não é uma
-  garantia estrutural.
+  classificação de pergunta fora do LLM, o que não estava no escopo desta sessão. Confirmado
+  presente na resposta testada na 1ª rodada (§11); não reverificado explicitamente nas rodadas 2-4,
+  que focaram noutros aspectos da pergunta (correção de bugs de agregação, não do aviso em si) —
+  não é uma garantia estrutural.
 - **Assistente: retry após rate limit (429) não usa backoff** — o guardrail de 1 retry tenta de
   novo imediatamente após qualquer falha, incluindo 429; sem espera entre tentativas, o retry após
   rate limit tende a falhar de novo pelo mesmo motivo. A mensagem ao usuário nesse caso já é
