@@ -6,10 +6,14 @@ engenharia e financeiro uma visão operacional dos empreendimentos, vendas, unid
 financeiros, sem alterar a estrutura ou os dados originais do banco além de exceções explícitas e
 documentadas.
 
-Esta sessão cobriu a camada de escrita (venda e distrato) — o componente mais observado da
-avaliação. Sessões anteriores cobriram o scaffolding inicial (Next.js, banco, tema), a
-autenticação e a normalização de dado (views + dedup de cliente). A camada analítica (dashboards)
-e o assistente de linguagem natural ainda não foram implementados.
+Os 4 componentes obrigatórios do enunciado estão implementados: **autenticação** (login por
+e-mail/senha com sessão em cookie assinado — ver seção "Autenticação"), **camada analítica**
+(dashboard em `/analitico` respondendo as 4 perguntas de negócio do enunciado — ver seção "Camada
+analítica"), **camada de escrita** (fluxo de venda e distrato, o componente mais observado da
+avaliação — ver seção "Camada de escrita") e **assistente de linguagem natural** (pergunta em
+português sobre os dados via duas chamadas à Groq, texto-para-SQL e SQL-para-resposta — ver seção
+"Assistente de linguagem natural"). Esta sessão (5, final) é de revisão e consolidação da
+documentação, sem código novo.
 
 ## Instalação e execução local
 
@@ -41,6 +45,7 @@ pnpm format          # Prettier --write
 pnpm format:check    # Prettier --check
 pnpm build           # build de produção
 pnpm setup:views     # recria as 3 views de normalização (idempotente, ver abaixo)
+pnpm test:e2e        # teste E2E persistido de venda/distrato (ver seção "Camada de escrita")
 ```
 
 **Reset a partir da cópia pristina**: `data/cambara_teste_tecnico.pristine.db` (não commitada, só
@@ -121,18 +126,20 @@ fluxos de escrita da aplicação: `POST /api/vendas` e `POST /api/distratos`
 - **Não corrige o histórico legado**: as 122 unidades presas em `distrato` no dado legado (ver
   "Limitações conhecidas") não são reclassificadas por este código — a regra só passa a valer
   corretamente para ações novas feitas pela aplicação a partir de agora.
-- **Teste E2E persistido**: diferente do restante da aplicação (Playwright só ad-hoc via `npx`,
-  sem virar dependência — ver `AGENTS.md` seção 2), o fluxo de venda/distrato tem um teste
-  Playwright **commitado** em `tests/e2e/vendas-distratos.spec.ts`, por ser o componente mais
-  observado da avaliação. Cobre: vender uma unidade disponível com sucesso; tentar vender a mesma
-  unidade de novo e receber erro de negócio (409, não sucesso); distratar a venda e confirmar que
-  a unidade volta a `disponivel`. Roda isolado, sem Playwright entrar como devDependency do
-  projeto. Versão do Playwright fixada explicitamente no comando (`@1.62.1`, a versão usada para
-  validar os 3 cenários) — evita que uma execução futura puxe uma versão diferente via `npx`:
+- **Teste E2E persistido**: o fluxo de venda/distrato tem um teste Playwright **commitado** em
+  `tests/e2e/vendas-distratos.spec.ts`, por ser o componente mais observado da avaliação. Cobre:
+  vender uma unidade disponível com sucesso; tentar vender a mesma unidade de novo e receber erro
+  de negócio (409, não sucesso); distratar a venda e confirmar que a unidade volta a `disponivel`.
+  **Atualização (sessão 5)**: Playwright passou a ser devDependency real do projeto
+  (`@playwright/test@1.62.1`, versão pinada — a mesma usada para validar os 3 cenários), a pedido
+  explícito do humano, revertendo a decisão original de mantê-lo como ferramenta de sessão só via
+  `npx` (ver `AGENTS.md` seção 2 para o detalhe da mudança). O resto da aplicação continua validado
+  via Playwright ad-hoc e descartável (não persistido) — só esse teste é commitado.
   ```bash
-  npx playwright@1.62.1 install chromium   # uma vez, baixa o browser
+  pnpm install                             # já instala o Playwright junto (devDependency)
+  npx playwright@1.62.1 install chromium   # uma vez, baixa o browser (não vem no pnpm install)
   pnpm dev                                 # em outro terminal — o teste espera localhost:3000
-  npx playwright@1.62.1 test tests/e2e/
+  pnpm test:e2e                            # roda o teste (equivalente a npx playwright@1.62.1 test tests/e2e/)
   ```
   O teste usa a unidade `id = 4` do banco de trabalho; como o próprio teste distrata a venda que
   cria, ele é seguro para rodar em sequência sem precisar resetar o banco a cada execução.
@@ -334,6 +341,21 @@ decisões de implementação e correções, ver
 
 ## Limitações conhecidas
 
+**Nota de calibração de confiança — cobertura de teste do assistente de linguagem natural**: os
+testes manuais cobriram aproximadamente 17 fraseados distintos ao longo de 4 rodadas (5 na 1ª
+rodada, 8 novos na 2ª, 4 novos na 3ª, mais retestes pontuais na 4ª) — não um levantamento
+exaustivo do espaço de fraseado possível para as 4 perguntas de negócio. O padrão observado nas 4
+rodadas foi consistente: cada correção de prompt eliminou exatamente o erro que a expôs, mas a
+rodada seguinte, testando um fraseado novo da mesma pergunta, expôs uma variação diferente do
+mesmo tipo de erro de agregação (rodada 1: `AVG()` direto; rodada 2: subtração indevida no
+numerador e contagem de mês-calendário em vez de linha; rodada 3: filtro indevido no denominador;
+rodada 4: `COUNT()` sem `DISTINCT` disfarçado, depois divisão pela população errada de clientes).
+Isso indica que o espaço de erro de agregação foi reduzido a cada rodada, não esgotado — portanto
+perguntas do avaliador com fraseado fora dos ~17 testados aqui carregam risco real de **erro
+silencioso de definição** (um número plausível, mas matematicamente errado, sem nenhum sinal
+visível de falha na resposta), e não apenas risco de indisponibilidade ou da resposta padrão "não
+consegui responder com confiança nos dados disponíveis".
+
 - **Velocidade de vendas não é normalizada por tempo desde o lançamento** — comparar
   empreendimentos pela contagem/ritmo bruto de vendas mistura "vende mal" com "foi lançado há
   pouco tempo". Normalização por `data_lancamento` fica para sessão futura de métricas.
@@ -360,9 +382,9 @@ decisões de implementação e correções, ver
 - **CI (`.github/workflows/ci.yml`) ainda não roda testes E2E** — só lint, format check e build,
   conforme escopo do agente devops (`AGENTS.md` seção 5). O teste Playwright persistido do fluxo
   de venda/distrato (`tests/e2e/vendas-distratos.spec.ts`, ver `AGENTS.md` seção 2 e seção "Camada
-  de escrita" acima) já existe e passa localmente via `npx playwright@1.62.1 test tests/e2e/`, mas
-  fica em aberto para decisão humana se ele entra no pipeline automatizado ou continua validação
-  ad-hoc de sessão. O step de
+  de escrita" acima) já existe e passa localmente via `pnpm test:e2e`, mas fica em aberto para
+  decisão humana se ele entra no pipeline automatizado ou continua validação ad-hoc de sessão. O
+  step de
   `next build` no CI define `DATABASE_PATH` apontando para o `data/cambara_teste_tecnico.db`
   commitado (necessário porque `lib/db/connection.ts` abre a conexão de forma eager, no import do
   módulo) — não define `SESSION_SECRET`/`GROQ_API_KEY`, confirmado dispensável para o build.
@@ -392,7 +414,12 @@ decisões de implementação e correções, ver
   compraram (não corrigido)** — na pergunta 3 literal do enunciado, a rodada final gerou
   `SUM(valor_venda) / COUNT(*) FROM clientes` (2.691, todos os cadastrados) em vez de
   `SUM(valor_venda) / COUNT(DISTINCT cliente_id)` sobre as vendas (1.535, só quem comprou) —
-  produzindo ticket médio ≈R$1,80M em vez do correto ≈R$3,15M. Isso veio depois de uma correção
+  produzindo ticket médio ≈R$1,80M em vez do correto ≈R$3,15M. **Nota sobre o 1.535 vs. o 1.440 da
+  seção "Camada analítica"**: não é inconsistência, são dois universos diferentes por dois
+  critérios independentes — confirmado contra o banco nesta sessão. 1.535 é
+  `COUNT(DISTINCT cliente_id)` bruto sobre **todas** as linhas de `v_vendas_norm` (`ativa` **e**
+  `distrato`), sem nenhuma fusão de duplicata; 1.440 filtra só `status_canonico = 'ativa'` **e**
+  aplica a fusão de dedup de alta confiança do dashboard (89 grupos). Isso veio depois de uma correção
   nesta mesma sessão que eliminou uma forma anterior do mesmo tipo de erro (dividir por
   `COUNT(coluna)` sem `DISTINCT` sobre a tabela de vendas, matematicamente igual a `AVG()`) — a
   correção funcionou para esse padrão específico, mas o modelo encontrou uma variação nova:
@@ -404,9 +431,10 @@ decisões de implementação e correções, ver
   únicos/duplicados, mas nada no código força esse aviso (não há detecção de palavra-chave do lado
   da aplicação) — se o LLM não seguir a instrução, o aviso pode não aparecer numa resposta
   específica. Decisão consciente: mover essa checagem para o código exigiria replicar heurística de
-  classificação de pergunta fora do LLM, o que não estava no escopo desta sessão. Confirmado que o
-  aviso apareceu em todas as respostas testadas sobre dedup até agora (§11), mas isso não é uma
-  garantia estrutural.
+  classificação de pergunta fora do LLM, o que não estava no escopo desta sessão. Confirmado
+  presente na resposta testada na 1ª rodada (§11); não reverificado explicitamente nas rodadas 2-4,
+  que focaram noutros aspectos da pergunta (correção de bugs de agregação, não do aviso em si) —
+  não é uma garantia estrutural.
 - **Assistente: retry após rate limit (429) não usa backoff** — o guardrail de 1 retry tenta de
   novo imediatamente após qualquer falha, incluindo 429; sem espera entre tentativas, o retry após
   rate limit tende a falhar de novo pelo mesmo motivo. A mensagem ao usuário nesse caso já é

@@ -89,11 +89,12 @@ distrato) e assistente de linguagem natural sobre os dados.
 - **bcryptjs** (não `bcrypt` nativo).
 - **Prettier + ESLint** como devDependencies reais, `eslint-config-prettier` ativo por último na
   cadeia de config para evitar conflito de regra estilística.
-- **Playwright** como ferramenta de sessão (`npx`, não devDependency) para validar
-  responsividade/acessibilidade a cada feature — exceção: o fluxo de venda/distrato recebe teste
-  E2E persistido e commitado (`tests/e2e/vendas-distratos.spec.ts`), dado ser o componente mais
-  observado da avaliação. Versão do Playwright fixada no comando documentado no README, para
-  reprodutibilidade.
+- **Playwright** (`@playwright/test@1.62.1`, versão pinada) — **devDependency real do projeto desde
+  a sessão 5** (03/09/2026, ver seção 12 abaixo; decisão original era "ferramenta de sessão, não
+  devDependency", revertida a pedido explícito do humano). Usado para validar
+  responsividade/acessibilidade a cada feature (ad-hoc, não persistido) — exceção: o fluxo de
+  venda/distrato recebe teste E2E persistido e commitado (`tests/e2e/vendas-distratos.spec.ts`,
+  script `pnpm test:e2e`), dado ser o componente mais observado da avaliação.
 - Estrutura por feature (`vendas/`, `unidades/`, `clientes/`, `financeiro/`, `auth/`, `analitico/`),
   tanto em `app/` quanto em `lib/`.
 - UI: shadcn/ui + Tailwind, tema customizado (grafite + dourado). **Mobile first** genuíno —
@@ -737,3 +738,30 @@ lado da aplicação (ex.: detecção de palavra-chave na pergunta) que force ess
 seguir a instrução numa resposta específica, o aviso pode não aparecer. Decisão consciente: mover
 essa lógica para o código replicaria uma heurística de classificação de pergunta fora do LLM, fora
 do escopo desta sessão. Registrado também no README, seção "Limitações conhecidas".
+
+---
+
+## 12. Sessão 5 — Playwright promovido a devDependency real (03/09/2026)
+
+**Decisão revertida a pedido explícito do humano na conversa**: a seção 2 do `AGENTS.md` original
+(e a seção 3 deste documento) tratavam Playwright como "ferramenta de sessão, não dependência" —
+invocado via `npx playwright` sob demanda, nunca listado em `package.json`. Essa decisão foi
+revertida nesta sessão: `@playwright/test@1.62.1` (mesma versão já usada para validar o teste E2E
+persistido em todas as rodadas anteriores) agora entra como devDependency real via
+`pnpm add -D @playwright/test@1.62.1`.
+
+**O que muda**: rodar o teste E2E persistido (`tests/e2e/vendas-distratos.spec.ts`) ou validação
+ad-hoc de feature não depende mais de baixar o pacote a cada chamada via `npx` — já está resolvido
+pelo `pnpm install`. Novo script `pnpm test:e2e` em `package.json`
+(`npx playwright@1.62.1 test tests/e2e/`) como atalho.
+
+**O que não muda**: Playwright continua fora do pipeline de CI padrão (`.github/workflows/ci.yml`)
+— essa é uma decisão separada, não revertida nesta sessão (ver "Limitações conhecidas" no
+README). A validação ad-hoc de outras features continua não persistida — só o teste de
+venda/distrato é commitado, mesma exceção de sempre.
+
+**Documentação atualizada em consequência**: `AGENTS.md` (seções 1 e 2), README (seção "Camada de
+escrita", lista de scripts, e a nota de limitação sobre CI), `docs/log-tecnico-decisoes.md` (seção
+3, este documento) e `.claude/agents/frontend.md` (checklist de validação). `.claude/agents/
+devops.md` não precisou de alteração — a regra "Playwright fora do pipeline de CI" ali é
+independente de ele ser ou não devDependency do projeto.

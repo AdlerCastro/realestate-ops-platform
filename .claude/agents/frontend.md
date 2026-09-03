@@ -38,7 +38,9 @@ Antes de qualquer ação, leia:
 
 ## Validação
 
-Ao terminar uma feature visual, valide via Playwright ad-hoc (`npx playwright`, não instalar como
-dependência do projeto — ver `AGENTS.md` seção 2): viewport mobile primeiro, depois breakpoints
-maiores; labels associados a inputs; navegação por teclado. Rode `npm run lint` e
-`npm run format:check` antes de considerar o trabalho pronto.
+Ao terminar uma feature visual, valide via Playwright ad-hoc (`npx playwright` ou
+`pnpm exec playwright`, já instalado como devDependency pinada desde a sessão 5 — ver `AGENTS.md`
+seção 2; spec de validação continua descartável, não persistido, exceto o teste de venda/distrato
+já commitado): viewport mobile primeiro, depois breakpoints maiores; labels associados a inputs;
+navegação por teclado. Rode `npm run lint` e `npm run format:check` antes de considerar o trabalho
+pronto.

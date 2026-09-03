@@ -36,18 +36,28 @@ própria que "é óbvio que pode".
 - **ESLint** — usar a configuração padrão do Next.js (`next lint`) como base; qualquer regra
   extra deve ser justificada em comentário no próprio arquivo de config, não adicionada em
   silêncio.
-- Ambos entram como **devDependency real** do projeto (diferente do Playwright — ver seção 2) e
+- Ambos entram como **devDependency real** do projeto (assim como o Playwright — ver seção 2) e
   devem rodar como parte do fluxo de CI (ver seção 5).
 - Nenhum código é considerado "pronto" numa sessão sem passar por `prettier --check` e
   `next lint` sem erros.
 
 ---
 
-## 2. Validação de features com Playwright (ferramenta de sessão, não dependência)
+## 2. Validação de features com Playwright
 
-Playwright é usado **dentro da sessão do Claude Code** para validar uma feature recém-criada,
-mas **não entra em `package.json`** — é invocado via `npx playwright` sob demanda, não é parte
-do projeto instalado nem do pipeline de CI padrão.
+**Atualização (sessão 5, 03/09/2026)**: Playwright passou a ser **devDependency real** do
+projeto (`@playwright/test@1.62.1`, versão pinada — a mesma usada para validar o teste E2E
+persistido), a pedido explícito do humano na conversa, revertendo a decisão original desta seção
+("ferramenta de sessão, não dependência"). **Motivo**: conveniência de rodar o teste E2E sob
+demanda via script (`pnpm test:e2e`) sem depender do `npx` resolver a versão do pacote a cada
+chamada — não uma mudança de escopo (E2E continua fora do CI, ver abaixo). O motivo original desta
+seção (evitar inflar `node_modules`/CI com uma dependência usada só ad-hoc) deixou de valer por
+essa decisão consciente, não por engano — este parágrafo substitui a versão anterior da regra; não
+tratar como contradição a corrigir.
+
+Continua **fora do pipeline de CI padrão** (ver seção 5 e `.claude/agents/devops.md`) — instalar
+como devDependency resolve só a fricção de rodar localmente (sem precisar do `npx` buscar a
+versão a cada chamada), não muda a decisão de não rodar E2E automaticamente em CI.
 
 Checklist de validação por feature (rodar antes de considerar a sessão concluída):
 
@@ -58,11 +68,18 @@ Checklist de validação por feature (rodar antes de considerar a sessão conclu
 - **Padrões de design**: componentes usando o tema customizado do shadcn/ui (não o default),
   espaçamento e tipografia consistentes com o restante da aplicação.
 
+Essa validação ad-hoc continua não persistida (roda via `npx playwright test <caminho-temporário>`
+ou `pnpm exec playwright test <caminho-temporário>`, spec descartado ao fim da sessão) — a
+instalação como devDependency não muda isso, só evita repetir o download do binário do Playwright
+a cada chamada.
+
 **Exceção documentada**: o fluxo de venda/distrato (camada de escrita, componente mais observado
-da avaliação) recebe um teste Playwright **persistido e commitado** — não descartável ao fim da
-sessão — mesmo mantendo a regra geral de "sem dependência" para o restante da aplicação. Esse
-teste específico deve rodar via script isolado (`npx playwright test tests/e2e/vendas.spec.ts`
-ou caminho equivalente), sem exigir Playwright como devDependency completa do projeto.
+da avaliação) recebe um teste Playwright **persistido e commitado**
+(`tests/e2e/vendas-distratos.spec.ts`) — não descartável ao fim da sessão. Roda via
+`pnpm test:e2e` (script em `package.json`, equivalente a
+`npx playwright@1.62.1 test tests/e2e/`) ou diretamente via `npx playwright@1.62.1 test
+tests/e2e/`. Ver README, seção "Camada de escrita", para o passo a passo completo (instalar o
+browser Chromium é um passo único separado).
 
 ---
 

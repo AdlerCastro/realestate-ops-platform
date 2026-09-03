@@ -10,7 +10,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "seed": "tsx scripts/seed.ts",
-    "setup:views": "tsx scripts/setup-views.ts"
+    "setup:views": "tsx scripts/setup-views.ts",
+    "test:e2e": "playwright test tests/e2e/"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -28,6 +29,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^20",
