@@ -27,6 +27,12 @@ export default async function DashboardLayout({
           >
             Vendas
           </Link>
+          <Link
+            href="/analitico"
+            className="text-muted-foreground hover:text-foreground"
+          >
+            Analítico
+          </Link>
         </nav>
         <div className="flex items-center justify-between gap-3 sm:justify-end">
           <span className="text-sm font-medium">{session.nome}</span>
