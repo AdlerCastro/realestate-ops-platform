@@ -44,3 +44,7 @@ data/cambara_teste_tecnico.pristine.db
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# sqlite WAL/SHM (arquivos de journal temporários, não fazem parte do dado)
+data/*.db-wal
+data/*.db-shm
