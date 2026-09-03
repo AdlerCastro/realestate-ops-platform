@@ -137,6 +137,32 @@ fluxos de escrita da aplicação: `POST /api/vendas` e `POST /api/distratos`
   O teste usa a unidade `id = 4` do banco de trabalho; como o próprio teste distrata a venda que
   cria, ele é seguro para rodar em sequência sem precisar resetar o banco a cada execução.
 
+## Camada analítica
+
+Dashboard em `/analitico` (`app/(dashboard)/analitico/`), Server Component que lê diretamente de
+`lib/features/analitico/repository.ts` — sem hook, sem TanStack Query, sem cache — respondendo as
+4 perguntas de negócio do enunciado. Mobile-first: cards empilhados no viewport mobile, tabela a
+partir de `md:`. Cada seção traz uma nota visível (não em tooltip) explicando a premissa de
+tratamento de dado aplicada — ver `docs/regras-de-negocio.md` para o detalhamento completo de cada
+regra, com evidência contra o banco real.
+
+- **Velocidade de vendas líquida de distrato** — numerador `status_canonico = 'vendida'`
+  (`v_unidades_norm`), denominador todas as unidades do empreendimento. 3 piores destacados na UI:
+  Essência Living (6,84%), Atelier Tower (18,82%), Cume Tower (24,66%).
+- **Risco de estouro de custo** — direto contra `obra_andamento`, magnitude = soma só dos meses
+  com estouro positivo (critério bruto), desvio líquido exposto como referência secundária.
+- **Duplicidade de cliente** — usa `classificarGruposDedup`; só grupos de alta confiança (e-mail
+  sintético `contatoN@exemplo.com`) entram no cálculo "corrigido" de clientes únicos/ticket médio;
+  os 8 pares de baixa confiança ficam listados como "requer verificação manual", nunca mesclados.
+- **Divergência financeira** — direto de `v_financeiro_reconciliado`, totais e detalhamento por
+  empreendimento.
+
+**Nota sobre a métrica de dedup**: o número exibido no dashboard (1.440 clientes compradores
+únicos / R$ 3.167.271,61 de ticket médio) reflete a política atual (merge só de alta confiança) e
+diverge do número histórico da análise original (1.436 / R$ 3.176.094,10, que mesclava alta e
+baixa confiança juntas) — divergência esperada por mudança de critério, não um erro de query. Ver
+nota completa na regra B4 de `docs/regras-de-negocio.md`.
+
 ## Operação/Runbook
 
 **Resetar o banco de trabalho a partir da cópia pristina**: copiar `data/cambara_teste_tecnico.
@@ -189,6 +215,11 @@ implementadas fora de escopo. Veja `AGENTS.md` seção 5 para o detalhamento de 
 
 Esta seção resume as decisões da sessão de normalização (análise completa do banco). O SQL das
 views e a lógica de dedup são definitivos — validados contra `data/cambara_teste_tecnico.db` real.
+Ver [`docs/regras-de-negocio.md`](docs/regras-de-negocio.md) para o detalhamento completo de cada
+regra (o quê, por quê, como foi validado contra o banco), incluindo as regras de escrita e
+governança de dado legado que não cabem neste resumo. Para o histórico técnico completo de
+decisões de implementação e correções, ver
+[`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md).
 
 - **`v_unidades_norm`** — reduz as grafias inconsistentes de `unidades.status` (ex.:
   `disponivel`/`disponível`) a um `status_canonico` fechado (`vendida`, `disponivel`,
