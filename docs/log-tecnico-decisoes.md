@@ -366,7 +366,9 @@ humana explícita — nunca aplicada.
    - Divergência financeira: 63/562 meses, 18/22 empreendimentos, R$ 6.926.672,09.
    - Duplicidade de cliente: 97 grupos / 196 registros; 1.440 clientes únicos pela política atual
      (ver seção 7e).
-4. **Assistente de linguagem natural** — duas chamadas Groq, guardrails, UI com SQL + resultado.
+4. ✅ **Assistente de linguagem natural** — duas chamadas Groq, guardrails, UI com SQL + resultado.
+   Ver seção 11 para o detalhamento completo desta sessão, incluindo a troca de modelo e o teste
+   manual pendente.
 5. **README final + revisão de limitações** — consolidação, não é sessão de código.
 
 ---
@@ -383,3 +385,355 @@ humana explícita — nunca aplicada.
 - Este documento deve se manter autocontido: qualquer decisão nova relevante para sessões futuras
   entra aqui como texto explícito, não como referência a uma conversa ou contexto externo ao
   repositório.
+
+---
+
+## 11. Sessão 4 — Assistente de linguagem natural (03/09/2026)
+
+Componente 4 do enunciado: assistente de linguagem natural sobre os dados, somente leitura.
+Arquitetura de duas chamadas Groq por pergunta, conforme já decidido antes desta sessão. Código em
+`lib/features/assistente/**`, rota `app/api/assistente/route.ts`, UI em `app/(dashboard)/assistente/`.
+
+### Correção de escopo do schema exposto ao Call 1
+
+O documento de decisões original dizia que o prompt de sistema do Call 1 recebia "apenas o schema
+das views". Isso estava incompleto: as 3 views (`v_unidades_norm`, `v_vendas_norm`,
+`v_financeiro_reconciliado`) só cobrem unidades/vendas/financeiro — perguntas sobre nome/cidade de
+empreendimento ou sobre estouro de custo (`obra_andamento`) não têm view e não seriam respondíveis
+vendo só as 3 views. O schema exposto em `lib/features/assistente/prompts.ts`
+(`SYSTEM_PROMPT_SQL`) inclui, além das 3 views: `empreendimentos`, `obra_andamento` e `clientes`
+(tabelas cruas). As tabelas brutas correspondentes às views (`unidades`, `vendas`,
+`financeiro_mensal`) ficam de fora — só as views normalizadas entram no schema.
+
+Para `clientes`: o prompt instrui explicitamente que este assistente não tem acesso à lógica de
+deduplicação (`chaveDedup`/`classificarGruposDedup`, TypeScript, seção 4). Perguntas sobre
+clientes únicos/duplicados devem gerar SQL de contagem bruta (ex.: `GROUP BY nome, cidade` exatos,
+sem normalização de acento/espaço), e a Call 2 é instruída a avisar que esse número não reflete a
+dedup do dashboard analítico.
+
+### Modelos Groq — troca frente ao planejado
+
+Os nomes registrados originalmente (`llama-3.3-70b-versatile` para Call 1,
+`llama-3.1-8b-instant` para Call 2) foram desativados pela Groq em **16/08/2026**
+(`shutdown date`, confirmado contra `console.groq.com/docs/deprecations` nesta sessão — a data da
+sessão, 03/09/2026, já é posterior ao shutdown, ou seja, os modelos antigos já não respondem mais
+requisições, não é uma depreciação futura). Substituídos pelos sucessores recomendados pela própria
+Groq:
+
+- **Call 1** (texto → SQL): `openai/gpt-oss-120b` (era o modelo maior/mais capaz disponível entre
+  os sucessores recomendados — a tarefa mais exigente das duas).
+- **Call 2** (resultado → resposta em português): `openai/gpt-oss-20b` (mais rápido/barato,
+  adequado para parafrasear um conjunto de linhas já pronto).
+
+Ambos com contexto de 131.072 tokens, compatíveis com `response_format: {type: "json_object"}`
+(usado só na Call 1). Implementação via `fetch` direto ao endpoint compatível com OpenAI da Groq
+(`lib/features/assistente/groq.ts`) — sem SDK novo como dependência, consistente com a preferência
+do projeto por evitar dependência quando uma chamada HTTP simples resolve.
+
+### Guardrails implementados
+
+- Conexão SQLite separada e somente-leitura: `lib/db/connection-readonly.ts`
+  (`new Database(path, { readonly: true })`), nunca a mesma conexão de `lib/db/connection.ts`
+  (escrita).
+- Antes de executar: `validarSelectUnico` (`lib/features/assistente/repository.ts`) rejeita
+  qualquer SQL que não comece com `SELECT` (case-insensitive) ou que contenha mais de um comando
+  (`;` além do opcional no final) — defesa em profundidade; a proteção real é o modo readonly do
+  driver.
+- 1 retry apenas se a geração/execução da SQL falhar (JSON inválido, SQL fora do guardrail, ou erro
+  de execução do SQLite) — o erro é reenviado ao LLM pedindo correção. Se falhar de novo, a
+  resposta ao usuário é `"Não consegui responder com confiança nos dados disponíveis."`
+  (`status: "falha"` no JSON da rota), nunca uma resposta incerta forçada.
+- Few-shot do prompt de sistema instrui `LIMIT 50` por padrão, exceto quando a pergunta pede um
+  agregado único.
+
+### Resultado do teste manual — 1ª rodada (dados reais, 03/09/2026)
+
+`GROQ_API_KEY` em `.env` estava vazio no início desta sessão (a máscara do `sed` usada numa
+inspeção anterior tinha ocultado esse fato — a linha `GROQ_API_KEY=` estava lá, mas sem valor). O
+usuário colou a chave real, primeiro por engano em `.env.example` (arquivo rastreado pelo Git —
+teria vazado a chave se commitado; corrigido movendo o valor para `.env`, que é gitignored, e
+restaurando `.env.example` ao placeholder vazio), depois confirmado em `.env`. Servidor reiniciado
+para carregar o valor novo.
+
+5 perguntas testadas contra `/assistente` real (4 perguntas de negócio, fraseado livre não-literal
+do enunciado, + 1 pergunta fora do script):
+
+| #                  | Pergunta                                                                                                                   | Resultado                                                                                                                                                                                    |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1                  | "Quais os 3 empreendimentos com pior velocidade de vendas?"                                                                | ✅ bate exatamente: Essência Living 6,84%, Atelier Tower 18,82%, Cume Tower 24,66%                                                                                                           |
+| 2                  | "Quais os empreendimentos com maior risco de estouro de custo, do maior para o menor?"                                     | ✅ bate exatamente: Panorama do Parque R$5.870.238,38, Alto Amazônia R$3.857.806,45, Estúdio Amazônia R$3.613.496,47, Cume Tower R$3.106.416,68, Cais Tower R$3.060.991,11                   |
+| 3                  | "Quantos clientes têm nome e cidade duplicados, e como isso afeta a contagem de clientes compradores e o ticket médio?"    | ⚠️ status "sucesso", mas com **bug 1** (ver abaixo)                                                                                                                                          |
+| 4                  | "Quantos meses têm divergência entre o resultado financeiro reportado e o recalculado, e qual o valor total da diferença?" | ⚠️ status "sucesso", mas com **bug 2** (ver abaixo)                                                                                                                                          |
+| 5 (fora do script) | "Quantas unidades tem o empreendimento Cume Tower e quantas já foram vendidas?"                                            | ✅ 146 unidades, 36 vendidas — consistente com #1, confirma que o schema completo (`empreendimentos` + view, sem nenhuma das 3 views sozinha bastar) responde perguntas fora das 4 originais |
+
+**Bug 1 — "ticket médio" calculado por venda, não por cliente.** A pergunta 3 gerou, entre outras
+colunas, `ticket_medio_raw` como `AVG(valor_venda)` (média por linha de venda) = R$2.188.517,81, em
+vez de `SUM(valor_venda) / COUNT(DISTINCT cliente_id)` (média por cliente, a definição fixada em
+`docs/regras-de-negocio.md` B4) = R$3.094.213,79 (número de referência de `refs/analise-banco-
+consolidada.md` §5c, sem dedup). O resto da pergunta funcionou (contagem de grupos duplicados via
+`GROUP BY nome, cidade` exato — 9 grupos, correto como contagem bruta; aviso obrigatório sobre não
+refletir a dedup do dashboard apareceu na resposta).
+
+**Bug 2 — soma de diferença sem `ABS()`, sinal cancelando.** A pergunta 4 gerou
+`SUM(diferenca)` (soma com sinal) = **–R$1.507.042,67**, não `SUM(ABS(diferenca))` (soma das
+magnitudes) = **R$6.926.672,09** (número de referência, seção 9 acima). A contagem de meses
+divergentes (63) não foi testada nessa pergunta específica (a pergunta só pediu "quantos meses" e
+"o valor total da diferença" — o modelo respondeu 63 meses corretamente, o problema foi só no
+valor). O few-shot já continha `SUM(ABS(diferenca))` para a pergunta de referência exata, mas o
+modelo não generalizou o padrão para esta variação de fraseado.
+
+**Achado operacional — rate limit do tier gratuito da Groq.** Ao rodar as 5 perguntas em sequência
+rápida via `curl` sem espaçamento, as perguntas 3, 4 e 5 vieram inicialmente como
+`"status": "falha"` com `sql` vazio. Diagnosticado chamando `chamarGroq` isoladamente para as
+mesmas perguntas (script ad-hoc fora do repositório): geraram SQL válida imediatamente. Repetido
+via API com ~15s de intervalo entre chamadas — sucesso em todas. Confirmado: rate limit (HTTP 429)
+do tier gratuito, não bug de prompt/schema. Motivou o bug 3 abaixo.
+
+### Correções aplicadas (bugs 1, 2 e 3)
+
+Instruções genéricas adicionadas a `SYSTEM_PROMPT_SQL`
+(`lib/features/assistente/prompts.ts`) — no texto do prompt de sistema, não só no SQL do exemplo,
+conforme pedido:
+
+- **Bug 1**: `"Média por X" ou "valor médio por X" ... SEMPRE significa agrupar por X antes de
+tirar a média — nunca AVG() direto sobre a tabela de transações. Calcule como SUM(coluna_de_valor)
+/ COUNT(DISTINCT id_do_X) ...`, com o exemplo explícito de ticket médio por cliente.
+- **Bug 2**: `"Ao somar desvios/diferenças que representam magnitude de erro, estouro ou
+divergência ... use sempre SUM(ABS(coluna)), nunca SUM(coluna) puro"` — generalizada para
+  qualquer pergunta desse tipo (divergência financeira, estouro de custo, ou variação futura), não
+  amarrada à pergunta de referência do few-shot.
+- **Bug 3** (baixa prioridade, corrigido mesmo assim): `GroqRateLimitError`, nova classe de erro em
+  `lib/features/assistente/groq.ts`, lançada quando a Groq responde HTTP 429 (em vez do `Error`
+  genérico). `responderPergunta` (`repository.ts`) rastreia se o último erro foi rate limit e, se
+  for, devolve `"Muitas perguntas em sequência — aguarde alguns segundos e tente novamente."` em
+  vez da mensagem genérica de falha — sem alterar a contagem de tentativas (continua 1 retry, o
+  retry após 429 tende a falhar de novo por não haver backoff, mas isso está fora do escopo pedido
+  para esta correção).
+
+### Validação da correção — 2ª rodada (8 perguntas, dados reais, 03/09/2026)
+
+Conforme pedido: as 4 perguntas de negócio **literais** do enunciado (`Teste Analista de
+Negócio.pdf`, seção 4, fora do repositório — texto exato abaixo) + 2 variações de fraseado cada
+para as perguntas 3 e 4 (diferentes do few-shot e da pergunta literal), com ~18s de intervalo entre
+chamadas para evitar o rate limit.
+
+**Bugs 1, 2 e 3 — confirmados corrigidos e generalizados:**
+
+- Pergunta 3 literal ("Há indícios de cadastros de clientes duplicados na base? Como isso
+  distorceria uma métrica de número de clientes únicos ou de ticket médio por cliente, se não fosse
+  tratado?") e variação A ("Se eu não tratasse a duplicidade de cadastro de cliente, qual ficaria o
+  ticket médio por cliente...?") **ambas** geraram `SUM(valor_venda) / COUNT(DISTINCT cliente_id)`
+  — nunca mais `AVG()` direto. Variação B (pergunta sobre impacto no número de clientes únicos)
+  também usou a forma correta em ambos os lados da comparação (bruto vs. dedup simplificado).
+- Pergunta 4 literal, variação A ("Qual empreendimento teve mais divergência ... somando tudo em
+  módulo?") e variação B ("... qual a soma da magnitude dessas diferenças?") — variação B gerou
+  `SUM(ABS(diferenca))` e retornou **R$6.926.672,09**, batendo exatamente com a seção 9. Variação A
+  (quebra por empreendimento) também usou `SUM(ABS(f.diferenca))` corretamente, apontando Essência
+  Living como maior divergência (R$2.260.920,59) — número não validado anteriormente na sessão 3
+  (que não quebra divergência por empreendimento individualmente), então não há como confirmar
+  contra uma referência prévia, mas o padrão `ABS()` generalizou corretamente.
+- Bug 3 validado com um teste extra (8 requisições concorrentes, fora do escopo dos 8 testes
+  pedidos): 5 das 8 vieram `"status": "falha"` com a mensagem nova
+  `"Muitas perguntas em sequência — aguarde alguns segundos e tente novamente."`, nunca mais a
+  mensagem genérica nesse cenário.
+
+**Duas divergências NOVAS encontradas nesta rodada — não fazem parte dos bugs 1/2/3, NÃO
+corrigidas, parando para decisão conforme instruído:**
+
+**Bug 4 (novo) — "líquidas de distrato" interpretado como subtração, não como o status canônico já
+líquido.** A pergunta 1 literal usa o texto exato do enunciado: _"unidades vendidas líquidas de
+distrato sobre total ofertado"_. O SQL gerado foi:
+
+```sql
+SELECT e.id, e.nome,
+  (SUM(CASE WHEN u.status_canonico = 'vendida' THEN 1 ELSE 0 END) -
+   SUM(CASE WHEN u.status_canonico = 'distrato' THEN 1 ELSE 0 END)) * 1.0 / NULLIF(COUNT(*),0) AS velocidade_vendas
+FROM v_unidades_norm u JOIN empreendimentos e ON e.id = u.empreendimento_id
+GROUP BY e.id ORDER BY velocidade_vendas ASC LIMIT 3
+```
+
+Isso **subtrai** a contagem de `distrato` da contagem de `vendida`, produzindo Essência Living
+4,21%, Atelier Tower 16,13%, Cume Tower 17,81% — divergente dos valores corretos (6,84% / 18,82% /
+24,66%, seção 9). Causa raiz: a regra B2 de `docs/regras-de-negocio.md` já deixa fechado que
+`status_canonico = 'vendida'` **já é líquido** de distrato (uma unidade cancelada nunca aparece
+como `'vendida'`, aparece como `'distrato'` — normalização A1) — não deveria haver subtração
+nenhuma, só `vendida / total`. O fraseado literal do enunciado ("líquidas de distrato") levou o
+modelo a interpretar isso como uma operação aritmética explícita (`vendida - distrato`), dupla-
+contando o ajuste que a normalização já fez. Confirmado contra o banco: `vendida - distrato` dá os
+números errados vistos; `vendida` sozinho bate com a seção 9. O mesmo fraseado não-literal usado na
+1ª rodada e no few-shot ("pior velocidade de vendas", sem a palavra "líquidas") não expõe este bug
+— só a pergunta literal do enunciado expõe.
+
+**Bug 5 (novo) — "quantos meses" contado como meses-calendário distintos, não como registros
+mês×empreendimento divergentes.** A pergunta 4 literal ("Em quantos meses/empreendimentos isso
+ocorre?") e a variação B geraram `COUNT(DISTINCT mes_referencia)` = **29**, não `COUNT(*)` = **63**
+(o número da seção 9). Causa raiz: `v_financeiro_reconciliado` tem uma linha por
+(empreendimento, mês) — "63 meses" na seção 9 significa 63 linhas divergentes (contando o mesmo
+mês-calendário uma vez por empreendimento que divergiu nele), não 29 valores distintos de
+`mes_referencia` entre os 22 empreendimentos. Confirmado contra o banco:
+`COUNT(*) WHERE divergente=1` = 63, `COUNT(DISTINCT mes_referencia) WHERE divergente=1` = 29. A
+contagem de empreendimentos (`COUNT(DISTINCT empreendimento_id)` = 18) bateu certo nas duas
+perguntas — só a contagem de "meses" está errada. O fraseado "Em quantos meses/empreendimentos
+isso ocorre?" é genuinamente ambíguo (pode ler como "quantos meses-calendário" ou "quantas
+ocorrências mês×empreendimento"), mas a definição já fixada na seção 9 é a segunda leitura.
+
+**Decisão: não fiz nenhum ajuste de prompt para os bugs 4 e 5.** Ambos foram descobertos pelo
+próprio propósito do teste (fraseado literal do enunciado, que o avaliador pode usar na
+apresentação de 08/09) — registrando aqui e parando para decisão humana antes de tocar no prompt de
+novo, conforme instruído.
+
+### Correção dos bugs 4 e 5
+
+Duas novas instruções genéricas adicionadas a `SYSTEM_PROMPT_SQL`
+(`lib/features/assistente/prompts.ts`), no texto do prompt, não só no SQL de exemplo:
+
+- **Bug 4**: instrui que os valores de `status_canonico` (tanto em `v_unidades_norm` quanto em
+  `v_vendas_norm`) são **mutuamente exclusivos por construção da view** — uma linha tem exatamente
+  um valor por vez. "Líquido de X" ou "excluindo X" sobre um status-alvo Y (X e Y diferentes
+  valores do mesmo campo `status_canonico`) já é a contagem direta de Y, sem subtração — X já está
+  excluído de Y por definição. Inclui o exemplo exato do bug: "unidades vendidas líquidas de
+  distrato" = `COUNT(status_canonico = 'vendida')`, nunca
+  `COUNT(vendida) - COUNT(distrato)`.
+- **Bug 5**: fixa a convenção oficial (a seção 9 usa contagem de linha, não mês-calendário
+  distinto) — em perguntas sobre `v_financeiro_reconciliado`, "mês" significa uma linha da tabela
+  (par `empreendimento_id` + `mes_referencia`), nunca um mês-calendário distinto, porque a
+  granularidade já é por empreendimento. `COUNT(*)`, nunca `COUNT(DISTINCT mes_referencia)`, a
+  menos que a pergunta peça explicitamente "mês-calendário distinto".
+
+Antes de rodar qualquer teste: confirmado que a chave Groq real (colada pelo usuário nesta sessão)
+nunca foi commitada em `.env.example` nem em nenhum arquivo do histórico do Git — busca
+`git log --all -p | grep gsk_` em todo o histórico não retornou nenhuma ocorrência. A chave só
+existia transitoriamente na working tree (não commitada) antes de ser movida para `.env`
+(gitignored). Não foi necessário rotacionar a chave na Groq.
+
+### Validação da correção — 3ª rodada (8 perguntas, dados reais, 03/09/2026)
+
+As mesmas 4 perguntas literais do enunciado + 2 variações **novas** de Q1 e 2 variações **novas**
+de Q4 (fraseado diferente do few-shot e de todas as rodadas anteriores desta seção), ~18s de
+intervalo entre chamadas.
+
+**Bugs 4 e 5 — confirmados corrigidos:**
+
+- Q1 literal ("unidades vendidas líquidas de distrato sobre total ofertado") gerou
+  `SUM(vendida)/COUNT(*)` — **sem subtração** — e bateu exatamente: Essência Living 6,84%, Atelier
+  Tower 18,82%, Cume Tower 24,66%.
+- Q4 literal, variação C ("Para quantos meses o financeiro não bate...") e variação D ("Quantas
+  vezes, considerando cada empreendimento e mês separadamente...") — as três geraram
+  `COUNT(*) FROM v_financeiro_reconciliado WHERE divergente = 1` = **63**, batendo exatamente com a
+  seção 9. Nenhuma usou `COUNT(DISTINCT mes_referencia)` desta vez.
+
+**Bug 6 (NOVO) — "descontando"/"excluindo" distratos filtra o DENOMINADOR da velocidade de vendas,
+violando a regra B1.** Duas variações de Q1 desenhadas para testar generalização do fix do bug 4
+com um verbo diferente ("líquido" → "descontando"/"excluindo") expuseram um mecanismo de erro
+diferente do bug 4 original:
+
+- _"Descontando os distratos, quais os 3 empreendimentos com pior velocidade de vendas?"_
+- _"Excluindo as unidades distratadas, qual a velocidade de vendas de cada empreendimento? Quais os
+  3 piores?"_
+
+Ambas geraram a mesma SQL (variando só o alias):
+
+```sql
+SELECT e.id, e.nome,
+  SUM(CASE WHEN u.status_canonico = 'vendida' THEN 1 ELSE 0 END) AS vendidas,
+  SUM(CASE WHEN u.status_canonico != 'distrato' THEN 1 ELSE 0 END) AS total_considerado,
+  ROUND(1.0 * SUM(CASE WHEN u.status_canonico = 'vendida' THEN 1 ELSE 0 END)
+        / SUM(CASE WHEN u.status_canonico != 'distrato' THEN 1 ELSE 0 END), 4) AS velocidade
+FROM v_unidades_norm u JOIN empreendimentos e ON e.id = u.empreendimento_id
+GROUP BY e.id ORDER BY velocidade ASC LIMIT 3
+```
+
+O numerador está certo (`vendida` sem subtração — bug 4 não voltou). O problema é o **denominador**:
+`SUM(CASE WHEN status_canonico != 'distrato' ...)` remove as unidades em `distrato` do total
+considerado, produzindo Essência Living 7,03%, Atelier Tower 19,34%, Cume Tower 26,47% — diferente
+dos valores corretos (6,84% / 18,82% / 24,66%). Confirmado contra o banco:
+`total_todas_unidades` (190/186/146) vs. `total_sem_distrato` (185/181/136) — a regra B1 de
+`docs/regras-de-negocio.md` fixa que "total ofertado" é **todas** as unidades cadastradas,
+independentemente do status ("nenhum status na base sinaliza remoção de oferta/portfólio") — não
+deveria haver filtro nenhum no denominador. A instrução do bug 4 cobria só subtração no numerador
+entre dois valores do mesmo campo `status_canonico`; não cobre um `WHERE`/filtro que altera o
+universo do denominador de uma métrica de proporção. Reproduzido de forma idêntica em 2 fraseados
+independentes ("descontando", "excluindo") — não é um acaso isolado.
+
+**Decisão: não corrigido.** Conforme instruído, parando aqui e documentando como limitação
+conhecida no README (seção "Limitações conhecidas"), com o fraseado exato que expõe o problema, em
+vez de consumir mais tempo de correção sem teste automatizado por trás antes do prazo de 04/09.
+
+### Correção final — bug 1 recorrendo sob forma equivalente (COUNT sem DISTINCT, não AVG())
+
+Revisão humana da rodada anterior (pergunta 3, ver "Bugs 1, 2 e 3 — confirmados corrigidos e
+generalizados" acima) identificou que `ticket_medio_bruto` usava
+`SUM(v.valor_venda) / COUNT(v.cliente_id)` (sem `DISTINCT`) sobre `v_vendas_norm` — como
+`cliente_id` nunca é nulo numa venda, `COUNT(v.cliente_id) = COUNT(*)`, ou seja,
+matematicamente idêntico a `AVG(valor_venda)` (média por venda, não por cliente). A instrução do
+bug 1 só proibia o literal `AVG()`, não a forma equivalente via `COUNT(coluna)` sem `DISTINCT` —
+o mesmo defeito, disfarçado de sintaxe diferente.
+
+**Correção**: a regra de `SYSTEM_PROMPT_SQL` para "média/ticket por X" foi reescrita para proibir o
+padrão **semântico**, não a sintaxe: toda métrica desse tipo divide por `COUNT(DISTINCT id_do_X)`;
+`AVG()`, `COUNT(coluna)` sem `DISTINCT` e `COUNT(*)` são tratados explicitamente como formas
+equivalentes e igualmente erradas. Também instruído que um número "sem tratamento de dedup" para
+efeito de contraste ainda usa `COUNT(DISTINCT ...)` — a diferença entre bruto e deduplicado está em
+como o id é agrupado (`cliente_id` bruto vs. nome+cidade normalizados), nunca em ter ou não
+`DISTINCT` no denominador.
+
+**Validação — pergunta 3 literal do enunciado, rodada final:**
+
+```sql
+SELECT
+  (SELECT COUNT(*) FROM clientes) AS total_clientes_bruto,
+  (SELECT COUNT(*) FROM (
+     SELECT nome, cidade FROM clientes GROUP BY nome, cidade HAVING COUNT(*) > 1
+   )) AS grupos_duplicados,
+  (SELECT SUM(valor_venda) FROM v_vendas_norm) AS total_vendas,
+  (SELECT SUM(valor_venda) FROM v_vendas_norm) / (SELECT COUNT(*) FROM clientes) AS ticket_medio_bruto,
+  (SELECT SUM(valor_venda) FROM v_vendas_norm) / (SELECT COUNT(DISTINCT nome || '|' || cidade) FROM clientes) AS ticket_medio_dedup
+LIMIT 50
+```
+
+Resultado: `ticket_medio_bruto` = R$1.797.643,21, `ticket_medio_dedup` = R$1.803.675,57.
+
+**Resultado misto — o padrão mecânico específico do bug 1 (COUNT(coluna transacional) sem
+DISTINCT) não voltou a aparecer**, mas surgiu uma forma **nova** do mesmo tipo de erro, não coberta
+pela instrução: os dois denominadores agora usam `COUNT(*) FROM clientes` /
+`COUNT(DISTINCT nome||cidade) FROM clientes` — ou seja, contam **todos os clientes cadastrados**
+(2.691 / 2.682), não os clientes que efetivamente compraram (`COUNT(DISTINCT cliente_id)` sobre
+`v_vendas_norm`, que é 1.535). Confirmado contra o banco:
+`SUM(valor_venda) / COUNT(DISTINCT cliente_id) FROM v_vendas_norm` = **R$3.151.438,36** (o número
+correto, consistente com todas as rodadas anteriores que usaram essa fórmula) — bem diferente dos
+R$1.797.643,21/R$1.803.675,57 gerados nesta consulta. `COUNT(*) FROM clientes` é sintaticamente
+"`COUNT()` sem `DISTINCT`" (embora equivalha a `COUNT(DISTINCT id)` porque `clientes.id` é chave
+primária sem duplicata de linha) — o defeito real não é a ausência de `DISTINCT` em si desta vez,
+é dividir pela população errada (todos os cadastrados, não os compradores).
+
+**Conforme instruído: não é aberto como "bug 7", não corrigido nesta sessão.** Documentado como
+limitação conhecida no README ("Limitações conhecidas"), com a SQL exata acima. Esta é a última
+correção da camada de prompt desta sessão — parando de caçar variação de fraseado aqui; o tempo
+restante vai para a sessão 5 (README final).
+
+### Validação de UI (Playwright ad-hoc, não persistido)
+
+Checklist da seção 2 do `AGENTS.md` rodado via `npx playwright test` contra um spec temporário
+(fora do repositório, não commitado — só o fluxo de venda/distrato tem teste E2E persistido,
+conforme a exceção documentada na seção 2 do `AGENTS.md`):
+
+- **Mobile-first** (390×844): campo de pergunta, botão e cards de resposta/SQL/tabela empilham
+  corretamente, sem overflow horizontal na página (só dentro de containers com `overflow-x-auto`
+  — o `<pre>` da SQL e a tabela de resultado).
+- **Breakpoint desktop** (1280px): mesmo layout, sem quebra, largura do `body` não excede a
+  viewport.
+- **Acessibilidade básica**: `<Label htmlFor="pergunta">` associado ao `<Input id="pergunta">`
+  (confirmado via `getByLabel` do Playwright, que só resolve com associação real de label);
+  navegação por teclado testada (foco no campo, preenchimento, submit).
+- Nenhum teste de acessibilidade de contraste automatizado rodou — validação visual manual do tema
+  customizado (mesmos componentes `shadcn`/`@base-ui` das demais páginas, sem estilo novo
+  introduzido).
+
+### Limitação nova descoberta
+
+O aviso de que o número de clientes duplicados/únicos não reflete a dedup do dashboard analítico
+depende inteiramente da instrução no prompt de sistema da Call 2 — não há checagem no código do
+lado da aplicação (ex.: detecção de palavra-chave na pergunta) que force esse aviso. Se o LLM não
+seguir a instrução numa resposta específica, o aviso pode não aparecer. Decisão consciente: mover
+essa lógica para o código replicaria uma heurística de classificação de pergunta fora do LLM, fora
+do escopo desta sessão. Registrado também no README, seção "Limitações conhecidas".
