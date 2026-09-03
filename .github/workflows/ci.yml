@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, development]
+
+# Cancela execuções anteriores do mesmo PR quando um novo push chega, evitando gastar minutos de
+# CI validando um estado já superado.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Lint, format e build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.9.0"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Format check (Prettier)
+        run: npm run format:check
+
+      - name: Lint (ESLint)
+        run: npm run lint
+
+      # DATABASE_PATH é obrigatório aqui: lib/db/connection.ts instancia a conexão
+      # better-sqlite3 de forma EAGER (no topo do módulo, fora de função — ver
+      # `export const db = ... createConnection()`), então qualquer rota que importe esse
+      # módulo transitivamente (ex.: app/api/auth/login/route.ts -> lib/features/auth/
+      # repository.ts -> lib/db/connection.ts) dispara essa conexão assim que o Next.js importa
+      # o módulo durante "Collecting page data" — mesmo sem a rota ser executada. Confirmado
+      # localmente: `next build` sem DATABASE_PATH falha com
+      # "DATABASE_PATH não definido" em lib/db/connection.ts:9. O valor abaixo aponta para
+      # data/cambara_teste_tecnico.db, que está commitado no repositório (não está no
+      # .gitignore) especificamente para viabilizar isso em CI/local sem segredo nenhum — é
+      # dado de teste técnico, não produção.
+      #
+      # SESSION_SECRET e GROQ_API_KEY NÃO são definidos aqui: confirmado localmente que
+      # `next build` completa com sucesso sem eles. SESSION_SECRET só é lido dentro de
+      # `getSecret()` (lib/features/auth/session.ts), chamado em runtime (via `getSession()`,
+      # que usa `cookies()` — isso força renderização dinâmica, então o corpo da função nunca
+      # roda durante o build); GROQ_API_KEY não é referenciado por nenhuma feature ainda. Não
+      # adicionamos um valor dummy para nenhum dos dois: não é necessário para o build passar, e
+      # gerar segredo (ainda que dummy) sem necessidade real contraria a instrução de não decidir
+      # sozinho sobre segredos. Se uma sessão futura tornar SESSION_SECRET necessário em
+      # build-time (ex.: import eager em algum outro módulo), este step precisará ser revisado.
+      - name: Build (Next.js)
+        run: npm run build
+        env:
+          DATABASE_PATH: data/cambara_teste_tecnico.db

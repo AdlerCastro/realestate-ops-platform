@@ -139,3 +139,11 @@ views e a lógica de dedup são definitivos — validados contra `data/cambara_t
   `resultado_reportado` e `resultado_recalculado` — sem padrão sistemático identificado (não é
   sempre a favor ou contra a empresa, não concentrado em poucos empreendimentos). Tratado como
   possível erro de lançamento pontual, não como regra de negócio não capturada pela view.
+- **CI (`.github/workflows/ci.yml`) ainda não roda testes E2E** — só lint, format check e build,
+  conforme escopo do agente devops (`AGENTS.md` seção 5). O teste Playwright persistido do fluxo
+  de venda/distrato (`tests/e2e/vendas.spec.ts`, ver `AGENTS.md` seção 2) ainda não existe nesta
+  branch; quando existir, roda via `npx playwright test` isolado, e fica em aberto para decisão
+  humana se ele entra no pipeline automatizado ou continua validação ad-hoc de sessão. O step de
+  `next build` no CI define `DATABASE_PATH` apontando para o `data/cambara_teste_tecnico.db`
+  commitado (necessário porque `lib/db/connection.ts` abre a conexão de forma eager, no import do
+  módulo) — não define `SESSION_SECRET`/`GROQ_API_KEY`, confirmado dispensável para o build.
