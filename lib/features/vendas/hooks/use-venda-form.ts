@@ -3,9 +3,11 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   registrarVendaSchema,
   formaPagamentoEnum,
+  perfilEnum,
   type RegistrarVendaInput,
 } from "@/lib/features/vendas/schema";
 import {
@@ -23,6 +25,7 @@ interface UseVendaFormParams {
 
 type ModoCliente = "existente" | "novo";
 type FormaPagamento = (typeof formaPagamentoEnum.options)[number];
+type Perfil = (typeof perfilEnum.options)[number];
 
 const LIMITE_RESULTADOS_BUSCA = 20;
 
@@ -47,6 +50,7 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
   const router = useRouter();
 
   const [unidadeId, setUnidadeId] = useState("");
+  const [buscaUnidade, setBuscaUnidade] = useState("");
   const [valorVenda, setValorVenda] = useState("");
   const [formaPagamento, setFormaPagamento] = useState<FormaPagamento | "">("");
   const [modoCliente, setModoCliente] = useState<ModoCliente>("existente");
@@ -55,6 +59,7 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
   const [clienteNovoNome, setClienteNovoNome] = useState("");
   const [clienteNovoCidade, setClienteNovoCidade] = useState("");
   const [clienteNovoUf, setClienteNovoUf] = useState("");
+  const [clienteNovoPerfil, setClienteNovoPerfil] = useState<Perfil | "">("");
   const [clienteNovoEmail, setClienteNovoEmail] = useState("");
   const [erroValidacao, setErroValidacao] = useState<string | null>(null);
   // Aviso de duplicidade (regra C6 revertida, docs/regras-de-negocio.md) —
@@ -98,11 +103,29 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
       .slice(0, LIMITE_RESULTADOS_BUSCA);
   }, [clientes, buscaCliente]);
 
+  // Mesma normalização/padrão da busca de cliente acima — filtra por
+  // identificador OU nome do empreendimento, sem limite artificial (a
+  // seleção final é feita no próprio <select>, não numa lista separada).
+  const unidadesFiltradas = useMemo(() => {
+    const termo = normalizarTexto(buscaUnidade);
+    if (!termo) return unidades;
+
+    return unidades.filter(
+      (u) =>
+        normalizarTexto(u.identificador).includes(termo) ||
+        normalizarTexto(u.empreendimento_nome).includes(termo),
+    );
+  }, [unidades, buscaUnidade]);
+
   const mutation = useMutation({
     mutationFn: criarVenda,
     onSuccess: () => {
+      toast.success("Venda registrada com sucesso.");
       router.push("/vendas");
       router.refresh();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
     },
   });
 
@@ -118,6 +141,7 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
               nome: clienteNovoNome,
               cidade: clienteNovoCidade,
               uf: clienteNovoUf || undefined,
+              perfil: clienteNovoPerfil || undefined,
               email: clienteNovoEmail || undefined,
             },
           }),
@@ -164,7 +188,9 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
   }
 
   return {
-    unidades,
+    unidades: unidadesFiltradas,
+    buscaUnidade,
+    setBuscaUnidade,
     unidadeId,
     setUnidadeId,
     valorVenda,
@@ -184,6 +210,8 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
     setClienteNovoCidade: handleClienteNovoCidadeChange,
     clienteNovoUf,
     setClienteNovoUf,
+    clienteNovoPerfil,
+    setClienteNovoPerfil,
     clienteNovoEmail,
     setClienteNovoEmail,
     handleSubmit,

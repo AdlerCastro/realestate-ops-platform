@@ -130,6 +130,12 @@ fluxos de escrita da aplicação: `POST /api/vendas` e `POST /api/distratos`
   nenhum grupo de dedup por engano do cadastro. Não fechado formalmente no documento de decisões;
   se essa exigência não for a intenção do avaliador, é um ajuste de uma linha em
   `lib/features/vendas/schema.ts`.
+- **`perfil` obrigatório no cadastro de cliente novo (sessão 8, regra C7)**: mesmo trade-off da
+  `cidade` acima — `clientes.perfil` é `NULL`-ável no schema real, mas o formulário exige um dos 3
+  valores fechados (`Morador`, `Investidor`, `Institucional`), confirmados contra o banco antes de
+  fixar o enum (`SELECT DISTINCT perfil, COUNT(*) FROM clientes GROUP BY perfil` — 1.550/911/230,
+  sem variação de grafia, mesmo padrão de cautela já usado para `forma_pagamento`). Fluxo de
+  cliente existente não é afetado.
 - **Não corrige o histórico legado**: as 122 unidades presas em `distrato` no dado legado (ver
   "Limitações conhecidas") não são reclassificadas por este código — a regra só passa a valer
   corretamente para ações novas feitas pela aplicação a partir de agora.
@@ -150,6 +156,89 @@ fluxos de escrita da aplicação: `POST /api/vendas` e `POST /api/distratos`
   ```
   O teste usa a unidade `id = 4` do banco de trabalho; como o próprio teste distrata a venda que
   cria, ele é seguro para rodar em sequência sem precisar resetar o banco a cada execução.
+- **Toasts de confirmação** (`components/ui/sonner.tsx`, componente shadcn/ui `sonner`, montado em
+  `app/layout.tsx`): venda registrada e distrato registrado disparam toast de sucesso; erros de
+  negócio (409 — unidade indisponível, venda não ativa) disparam toast de erro reaproveitando a
+  mensagem já retornada pelo backend, não uma mensagem genérica nova.
+
+### Listagem de vendas — gráficos, tabelas separadas, busca e filtros (sessão 7)
+
+`/vendas` (`app/(dashboard)/vendas/`) deixou de ser só a listagem mínima de vendas ativas para
+escolher o que distratar (sessão 2) e passou a ser o dashboard completo da tela, mantendo a mesma
+fonte de leitura direta via Server Component (`listarVendasParaListagem`, `v_vendas_norm` sem
+filtro de status) e `contarUnidadesPorStatus` (`v_unidades_norm`, agregado por status canônico).
+
+- **Dois donuts no topo** (`vendas-charts.tsx`, `recharts` + `components/ui/chart.tsx` do
+  shadcn/ui): vendas ativas vs. distratadas, e unidades por status (4 fatias — vendida, disponível,
+  reservada, distrato). Ambos calculados sobre o universo completo carregado no servidor, **não**
+  reagem à busca/filtros da listagem abaixo (representam a proporção geral, não um recorte
+  filtrado). O donut de 4 fatias ficou legível com legenda (63%/28%/5,5%/3,7% do total, sem
+  sobreposição) — não foi necessário desdobrar em dois donuts separados. Cores do tema
+  (`app/globals.css`, tokens `--chart-1`..`--chart-4`) deixaram de ser grayscale placeholder (não
+  havia dashboard nenhum usando essas variáveis antes desta sessão) e passaram a um mapeamento fixo
+  por significado de negócio: `chart-1` = vendida/ativa (grafite-azulado do `--primary`), `chart-2`
+  = distrato (mesmo tom do `--destructive`), `chart-3` = disponível (dourado do `--accent`),
+  `chart-4` = reservada (cinza-azulado neutro).
+- **Duas tabelas separadas** (`vendas-ativas-list.tsx`, `vendas-distratadas-list.tsx`) em vez de
+  uma lista única — "Vendas ativas" (mesmas colunas de antes + ação Distratar) e "Vendas
+  distratadas" (mesmas colunas − ação + coluna "Data do distrato", sem ação, pois a aplicação não
+  suporta reverter distrato). Ambas com altura máxima fixa e scroll interno
+  (`max-h-112`/`max-h-128` conforme breakpoint, mobile-first) em vez de a página inteira rolando, e
+  cabeçalho de tabela `sticky` dentro do container com scroll (desktop). A tabela de distratadas
+  usa `data-testid="distrato-<id>"` (não `"venda-<id>"`), de propósito: o teste E2E persistido
+  espera `getByTestId("venda-<id>")` com contagem 0 imediatamente após um distrato — reusar o
+  mesmo prefixo faria a linha (que passa a existir na tabela de distratadas após o distrato)
+  quebrar essa asserção.
+- **Busca e filtros 100% client-side** (`lib/features/vendas/hooks/use-vendas-listagem.ts`): campo
+  de busca livre por cliente OU unidade (reaproveita `normalizarTexto` de
+  `lib/features/clientes/dedup.ts`, mesma normalização já usada no formulário de venda — sem lógica
+  nova), filtro de forma de pagamento (enum fechado C4), intervalo de data de venda (ambas as
+  tabelas) e intervalo de data de distrato (só a tabela de distratadas), todos combináveis em AND,
+  aplicados sobre o array já carregado pelo Server Component — sem round-trip ao servidor por
+  digitação/filtro (volume da base, 2.206 vendas, não justifica paginação server-side). Em ambas as
+  tabelas, a coluna "Unidade" mostra `{empreendimento} — {identificador}` (nunca o identificador
+  isolado — `unidades.identificador` não é único globalmente, ver seção "Camada de escrita" acima e
+  `docs/log-tecnico-decisoes.md` seção 5).
+- **Busca de unidade em `/vendas/novo`** (`use-venda-form.ts`, campo "Buscar por identificador ou
+  empreendimento" acima do `<select>` de unidade): mesmo padrão de normalização, filtra as opções
+  do select por identificador OU nome do empreendimento, client-side, sem alterar o formato de
+  exibição já existente (`{empreendimento} — {identificador} ({tipo})`).
+- **Achado técnico fora do escopo original — bug de renderização no `recharts@3.8.0`**: a versão
+  instalada automaticamente pelo CLI do shadcn/ui (`pnpm dlx shadcn add chart`) nunca renderizava
+  nenhum setor do `<Pie>` — `computePieSectors` (código-fonte do pacote,
+  `node_modules/recharts/es6/polar/Pie.js`) retorna `undefined` quando a soma dos valores do
+  `dataKey` sai `0`, e isso acontecia de forma reproduzível tanto em `next dev` quanto em `next
+build && next start`, com qualquer composição (com ou sem `ChartContainer`, `Cell`, tooltip,
+  legenda, um ou dois `<PieChart>` na mesma página). Diagnosticado inspecionando o estado Redux
+  interno do recharts direto no navegador (`store.getState().graphicalItems.polarItems` — o item
+  chegava registrado corretamente, com `dataKey`/`data` certos, mas o seletor `selectPieSectors`
+  não produzia setores). Resolvido atualizando para `recharts@3.10.1` (última patch da mesma major
+  na época desta sessão) — não é regressão do código desta aplicação, é bug de uma versão específica
+  do pacote. Fixar a versão em `3.10.1+` (ou testar visualmente após qualquer bump futuro de
+  `recharts`) é recomendado para quem estender esta tela.
+
+### Vendas: campo perfil, tabs e tabela de unidades (sessão 8)
+
+- **Campo "Perfil" obrigatório** no cadastro de "Cliente novo" (`/vendas/novo`) — enum fechado
+  (`Morador`/`Investidor`/`Institucional`) validado via Zod (`lib/features/vendas/schema.ts`),
+  confirmado contra o banco real antes de fixar (ver "Decisões de modelagem" acima e
+  `docs/regras-de-negocio.md`, regra C7). Fluxo "Cliente existente" não é afetado.
+- **Duas tabelas de vendas viraram um componente de tabs** (shadcn/ui `Tabs`, primitiva
+  `@base-ui/react/tabs`, `components/ui/tabs.tsx`) — "Vendas ativas" como aba padrão, "Vendas
+  distratadas" como segunda aba, mesma altura fixa/scroll interno/sticky header de antes, só o
+  container visual mudou (busca e filtros continuam idênticos, aplicados às duas abas). Os dois
+  donuts no topo **não foram alterados** — continuam globais, não reagem à aba selecionada.
+- **Nova tabela de unidades** (`unidades-list.tsx`, somente leitura) abaixo das tabs: as 3.300
+  unidades cadastradas, filtro por `status_canonico` (4 categorias) e busca por identificador,
+  client-side (mesmo padrão sem paginação server-side das outras tabelas desta tela). Sempre
+  exibe `{empreendimento} — {identificador}`, nunca o identificador isolado (mesmo motivo já
+  documentado para a tabela de vendas — `unidades.identificador` não é único globalmente). Sem
+  ação de venda/distrato aqui.
+- **Achado não relacionado a esta sessão, pré-existente, não corrigido**: os dois donuts
+  renderizam legenda e texto de rodapé, mas nenhum setor visível de `<Pie>` no navegador usado
+  para validar esta sessão — confirmado pré-existente (reproduz igual revertendo todo o diff desta
+  sessão via `git stash`, no HEAD do commit anterior), não uma regressão introduzida aqui. Ver
+  `docs/log-tecnico-decisoes.md` seção 15 para o diagnóstico completo.
 
 ## Camada analítica
 

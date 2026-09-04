@@ -276,6 +276,27 @@ ser consultada também no momento de escrita, não só na leitura.
 
 ---
 
+### C7. `perfil` obrigatório no cadastro de cliente novo
+
+**Regra**: embora `clientes.perfil` seja nullable no schema do banco, o formulário de cadastro de
+cliente novo (aba "Cliente novo" em `/vendas/novo`) exige o preenchimento de um dos 3 valores
+fechados: `Morador`, `Investidor`, `Institucional`. Fluxo de "cliente existente" não é afetado —
+clientes já cadastrados sem `perfil` preenchido continuam acessíveis normalmente, sem correção
+retroativa.
+
+**Por quê**: mesmo trade-off já aplicado a `cidade` (regra C5) — fidelidade ao schema original
+(que permite nulo) cede a um dado mais completo para cadastros novos daqui para frente, decisão
+consciente, não uma premissa em aberto.
+
+**Como foi analisado**: `SELECT DISTINCT perfil, COUNT(*) FROM clientes GROUP BY perfil` contra o
+banco real (`data/cambara_teste_tecnico.db`), mesmo padrão de cautela já usado para
+`forma_pagamento` (regra C4) — não assumir o enum antes de confirmar contra o banco. Resultado:
+exatamente os 3 valores esperados, sem variação de grafia (`Morador`: 1.550, `Investidor`: 911,
+`Institucional`: 230), mais 1 cliente pré-existente com `perfil` NULL (não corrigido
+retroativamente, consistente com o resto da regra).
+
+---
+
 ## D — Governança de dado legado
 
 ### D1. Unidades presas em status inconsistente
@@ -334,5 +355,6 @@ especificado por ninguém.
 | C4  | forma_pagamento enum fechado (3 valores)              | Escrita     | Verificação manual, sem grafia suja                            |
 | C5  | cidade obrigatória em cliente novo                    | Escrita     | Dependência da regra B4                                        |
 | C6  | Aviso não-bloqueante de dedup no cadastro (revertida) | Escrita     | Pedido explícito (04/09/2026), ver texto da regra              |
+| C7  | perfil obrigatório em cliente novo (enum fechado)     | Escrita     | 3 valores confirmados contra o banco, mesmo padrão de C4       |
 | D1  | 122 unidades presas — bucket separado, não corrigido  | Governança  | Contagem contra o banco                                        |
 | E1  | Sem RBAC                                              | Autorização | Fora de escopo do enunciado                                    |
