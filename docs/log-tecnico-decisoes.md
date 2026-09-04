@@ -374,6 +374,7 @@ humana explícita — nunca aplicada.
 6. ✅ **Correções na camada de escrita** (busca de cliente, aviso de dedup no cadastro, verificação
    do fluxo de distrato) — ver seção 13.
 7. ✅ **Vendas: gráficos, tabelas separadas, busca e filtros** — ver seção 14.
+8. ✅ **Vendas: campo perfil obrigatório, tabs e tabela de unidades** — ver seção 15.
 
 ---
 
@@ -986,3 +987,156 @@ apresentação de 08/09, o
 procedimento de reset para a cópia pristina está documentado no README, seção "Operação/Runbook" —
 não executado nesta sessão (decisão
 de reset é do humano, não automática).
+
+---
+
+## 15. Sessão 8 — Vendas: campo perfil obrigatório, tabs e tabela de unidades (04/09/2026)
+
+Escopo: 3 itens em `/vendas` e `/vendas/novo` — campo "Perfil" obrigatório no cadastro de cliente
+novo, refatoração das duas tabelas de vendas para um componente de tabs, e nova tabela de unidades
+(filtro por status + busca por identificador). Dashboard analítico, assistente de LN e autenticação
+não tocados; busca de cliente, aviso de duplicidade (C6), guard de venda/distrato e os dois donuts
+não reabertos. Nenhuma `CREATE VIEW`/`ALTER TABLE`/dado fora do fluxo normal da aplicação (regra da
+seção 0 do `AGENTS.md`).
+
+### Item 1 — `perfil` obrigatório, enum validado contra o banco antes de fixar
+
+Antes de tocar em código: `SELECT DISTINCT perfil, COUNT(*) FROM clientes GROUP BY perfil` contra
+`data/cambara_teste_tecnico.db` (mesmo padrão de cautela já usado para `forma_pagamento`, regra
+C4 — não assumir o enum, confirmar). Resultado: exatamente os 3 valores esperados, sem variação de
+grafia (`Morador`: 1.550, `Investidor`: 911, `Institucional`: 230), mais 1 cliente pré-existente
+com `perfil IS NULL` (não corrigido retroativamente — regra C7 de
+`docs/regras-de-negocio.md`, mesmo trade-off já aplicado a `cidade` na regra C5).
+
+- `lib/features/vendas/schema.ts`: novo `perfilEnum = z.enum(["Morador", "Investidor",
+"Institucional"], "Perfil é obrigatório.")` — mensagem custom em português, mesmo padrão das
+  demais mensagens do schema (zod v4, segundo parâmetro de `z.enum()` aceita string como mensagem
+  de erro). `clienteNovoSchema.perfil` passou de `z.string().trim().optional()` para `perfilEnum`
+  (obrigatório).
+- `lib/features/vendas/repository.ts` (`registrarVendaTx`): `c.perfil ?? null` → `c.perfil` (o
+  tipo já garante presença via Zod, `?? null` ficou redundante).
+- `lib/features/vendas/hooks/use-venda-form.ts`: novo estado `clienteNovoPerfil` +
+  `setClienteNovoPerfil`, incluído no payload de `clienteNovo` no submit.
+- `app/(dashboard)/vendas/novo/venda-form.tsx`: novo `<Select>` "Perfil" na aba "Cliente novo",
+  posicionado depois de "Cidade" e antes de "UF (opcional)" (mesma hierarquia visual de
+  obrigatório-antes-de-opcional já usada no formulário).
+- Validado manualmente via navegador contra o banco de trabalho real: submissão sem selecionar
+  Perfil bloqueia com a mensagem "Perfil é obrigatório." (sem round-trip ao servidor — validação
+  Zod client-side, mesmo padrão dos demais campos obrigatórios); submissão com "Investidor"
+  selecionado registrou a venda com sucesso e o valor gravado em `clientes.perfil` foi confirmado
+  via query direta contra o banco (`Investidor`, cliente id 2693) — write-path correto de ponta a
+  ponta. Fluxo "Cliente existente" não foi tocado nem re-testado (fora do escopo do item 1, não
+  reaberto).
+
+### Item 2 — tabs (shadcn/ui `Tabs`, `@base-ui/react/tabs`)
+
+`pnpm dlx shadcn@latest add tabs` — nenhum conflito de overwrite (`components/ui/tabs.tsx` é
+arquivo novo, mesmo padrão de cautela já usado para `chart`/`sonner` em sessão anterior, onde o
+CLI tentou sobrescrever `card.tsx` e foi recusado). O componente gerado segue o mesmo padrão de
+`button.tsx` (wrapper fino sobre a primitiva `@base-ui/react`, `data-slot`, `cn()`), incluindo
+`Tabs.Panel` com `keepMounted` default `false` (painel inativo desmonta do DOM) — sem impacto no
+teste E2E persistido, que só interage com a aba "Vendas ativas" (ativa por padrão via
+`defaultValue="ativas"`).
+
+- `app/(dashboard)/vendas/vendas-dashboard.tsx`: as duas `<Card>` empilhadas ("Vendas ativas" /
+  "Vendas distratadas") viraram uma única `<Card>` contendo `<Tabs defaultValue="ativas">` com
+  `TabsList` (`className="w-full"`, cada `TabsTrigger` com `className="flex-1"` para ocupar a
+  largura toda — mesmo padrão já usado no par de botões "Cliente existente"/"Cliente novo" de
+  `venda-form.tsx`) e dois `TabsContent` (`VendasAtivasList`/`VendasDistratadasList`, inalterados
+  internamente — busca/filtros client-side continuam funcionando exatamente como antes, só o
+  container visual mudou).
+- **Os dois donuts não foram tocados** (`vendas-charts.tsx` não foi editado nesta sessão) —
+  continuam calculados sobre `vendas`/`unidadesPorStatus` (universo completo carregado no
+  servidor), renderizados antes das tabs na árvore, sem qualquer prop nova ou reordenação que
+  pudesse acoplá-los à aba selecionada.
+- **Achado não relacionado a esta sessão, não corrigido**: os dois donuts renderizam a legenda e o
+  texto de rodapé (ex.: "2082 de 2211 vendas ativas no total.") mas **nenhum setor visível de
+  `<Pie>`** no navegador usado para validação desta sessão — inspecionado via
+  `document.querySelectorAll('svg.recharts-surface path')`, retornando array vazio (nenhum `<path>`
+  dentro do SVG, todos os `<g>` de camada do recharts vazios). Reproduzido de forma idêntica após
+  `git stash` do diff completo desta sessão (voltando ao HEAD do commit anterior, sem nenhuma
+  alteração de código desta sessão) — **confirmado pré-existente, não é regressão introduzida
+  aqui**. `recharts` continua pinado em `3.10.1` (`package.json`, sessão 7), então não é o mesmo
+  bug de versão já documentado e corrigido naquela sessão; causa raiz não investigada a fundo
+  (fora do escopo desta sessão, que não deveria tocar em `vendas-charts.tsx`/donuts) — possível
+  hipótese não confirmada: diferença de ambiente do navegador de automação usado para validação
+  desta sessão (headless/Chrome DevTools Protocol) versus o navegador interativo normal usado na
+  sessão 7, mas não testado contra um navegador comum para descartar. Sinalizado para
+  investigação futura caso o avaliador note o mesmo sintoma na apresentação de 08/09.
+
+### Item 3 — nova tabela de unidades (somente leitura)
+
+- `lib/features/unidades/repository.ts`: nova interface `UnidadeListagemItem` (`id`,
+  `identificador`, `tipo`, `area_privativa_m2`, `valor_tabela`, `empreendimento_id`,
+  `empreendimento_nome`, `status_canonico`) e `listarUnidadesParaListagem()` — `SELECT` direto de
+  `v_unidades_norm` (view já existente, nenhuma view nova) `JOIN empreendimentos`, sem filtro de
+  status (universo completo, as 3.300 unidades).
+- `lib/features/unidades/hooks/use-unidades-listagem.ts` (novo): viewmodel client-side — busca por
+  identificador (reaproveita `normalizarTexto`, mesma função de `lib/features/clientes/dedup.ts`
+  já usada nas outras buscas da aplicação) + filtro por `status_canonico`, `useMemo`, sem
+  round-trip HTTP, mesmo padrão de `use-vendas-listagem.ts`.
+- `app/(dashboard)/vendas/unidades-list.tsx` (novo): `Card` com filtro (busca + `<Select>` de
+  status) e tabela/cards mobile-first — mesmas classes de altura fixa + scroll interno
+  (`max-h-112 overflow-y-auto md:hidden` / `hidden max-h-128 overflow-y-auto md:block`, sticky
+  `thead` no desktop) já usadas em `vendas-ativas-list.tsx`/`vendas-distratadas-list.tsx`, sem
+  nenhuma ação (somente leitura — venda/distrato continuam exclusivos de `/vendas/novo` e dos
+  botões "Distratar" das tabs). Coluna "Unidade" sempre `{empreendimento} — {identificador}`,
+  nunca o identificador isolado (`unidades.identificador` não é único globalmente,
+  `docs/log-tecnico-decisoes.md` seção 5).
+- `app/(dashboard)/vendas/page.tsx`: nova chamada `listarUnidadesParaListagem()`, prop `unidades`
+  repassada para `VendasDashboard` → `UnidadesList`.
+- Validado manualmente contra o banco de trabalho real: "Unidades (3300 de 3300)" no estado
+  inicial (confirma o volume completo carregado, sem paginação server-side); busca por "0101"
+  reduziu para 22 linhas instantaneamente (client-side, sem chamada de rede); filtro de status
+  "Vendida" reduziu para 2082 linhas — **exatamente o mesmo número de "Vendas ativas" da aba ao
+  lado** (2082), consistência esperada (cada venda ativa corresponde a exatamente 1 unidade
+  vendida). Rolagem testada dentro do container (`overflow-y-auto`) com as 3.300 linhas
+  renderizadas sem paginação/virtualização — aceitável para este volume, mesmo padrão já usado
+  para as 2.206/2.212 vendas; sem lentidão perceptível na interação de scroll/filtro durante a
+  validação.
+
+### Verificação de qualidade
+
+`tsc --noEmit`, `pnpm lint`, `pnpm format:check` (após `prettier --write` nos 4 arquivos que o CLI
+do shadcn/a formatação inicial deixou fora do padrão do projeto — `venda-form.tsx`,
+`unidades-list.tsx`, `components/ui/tabs.tsx`, `use-unidades-listagem.ts`) e `pnpm build` — todos
+limpos. Teste E2E persistido (`pnpm test:e2e`) rodado após a refatoração de tabs — passou,
+confirmando que a mudança de container visual (duas `Card` → uma `Card` com `Tabs`) não quebrou
+`getByTestId("venda-<id>")` nem o fluxo de venda/distrato ponta a ponta. Nenhuma colisão de label
+nova: o campo "Perfil" (novo) e "Buscar unidade por identificador"/"Status" (tabela de unidades, só
+existe em `/vendas`, página que o teste E2E não usa `getByLabel`) não colidem com nenhum
+`getByLabel` do teste persistido (`Unidade`, `Valor da venda (R$)`, `Forma de pagamento`, `Buscar
+cliente por nome`, `Cliente` exato).
+
+**Achado não relacionado, pré-existente, não corrigido**: durante a validação manual, o overlay de
+dev do Next.js acusou 1 warning (não erro de build/lint/tsc) — `Base UI: A component that acts as
+a button expected a native <button>...`, originado em `components/ui/button.tsx:50` via o `Button`
+com `render={<Link href="/vendas/novo" />}` de `app/(dashboard)/vendas/page.tsx` (linha do "Nova
+venda"). Confirmado pré-existente via o mesmo `git stash` usado para investigar o achado dos
+donuts — reproduz idêntico no HEAD anterior a esta sessão. Não corrigido (fora do escopo dos 3
+itens pedidos, e mexer em `button.tsx` cruzaria fronteira de domínio sem necessidade).
+
+### Dado sintético deixado no banco de trabalho
+
+Não foi confirmado se o banco de trabalho estava pristino no início desta sessão (checagem
+omitida — para a próxima sessão, confirmar as contagens de referência, 2.206 vendas/2.691
+clientes/3.300 unidades, antes de iniciar validação manual). No primeiro carregamento de `/vendas`
+desta sessão (antes de qualquer ação desta sessão) já havia 1 par venda+distrato sintético
+pré-existente para "Adler Castro" (unidade `id = 4`, valor R$100.320.004,00, `Parcelado Direto`) —
+não criado por esta sessão, presumivelmente leftover de uma sessão anterior não documentado. Duas
+novas fontes de escrita nesta sessão, ambas via o fluxo normal da aplicação:
+
+1. `pnpm test:e2e` — rodado 2 vezes nesta sessão (verificação intermediária após a refatoração de
+   tabs, e verificação final desta seção) — criou 2 pares venda+distrato sintéticos (mesmo padrão
+   das sessões anteriores) para a unidade `id = 4` com o cliente `id = 1` ("Ursula Ferreira
+   Ferreira").
+2. Validação manual do campo Perfil (item 1) criou 1 cliente novo (`id = 2693`, "Fulano Teste
+   Sessao8", `cidade = "Cidade Teste"`, `perfil = "Investidor"`) e 1 venda para a mesma unidade
+   `id = 4` — distratada manualmente ao final do teste (botão "Distratar" na UI), unidade
+   devolvida a `disponivel`, confirmado antes do fim da sessão.
+
+Total de vendas no banco de trabalho ao final: 2.213 (2.206 originais + 1 leftover pré-existente +
+2 do E2E + 1 do teste manual do item 1), todas em `status_venda = 'distrato'`, nenhuma unidade
+presa como indisponível por conta de dado desta sessão. Se indesejado antes da apresentação de
+08/09, o procedimento de reset para a cópia pristina está documentado no README, seção
+"Operação/Runbook" — não executado nesta sessão (decisão de reset é do humano, não automática).

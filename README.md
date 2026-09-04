@@ -130,6 +130,12 @@ fluxos de escrita da aplicação: `POST /api/vendas` e `POST /api/distratos`
   nenhum grupo de dedup por engano do cadastro. Não fechado formalmente no documento de decisões;
   se essa exigência não for a intenção do avaliador, é um ajuste de uma linha em
   `lib/features/vendas/schema.ts`.
+- **`perfil` obrigatório no cadastro de cliente novo (sessão 8, regra C7)**: mesmo trade-off da
+  `cidade` acima — `clientes.perfil` é `NULL`-ável no schema real, mas o formulário exige um dos 3
+  valores fechados (`Morador`, `Investidor`, `Institucional`), confirmados contra o banco antes de
+  fixar o enum (`SELECT DISTINCT perfil, COUNT(*) FROM clientes GROUP BY perfil` — 1.550/911/230,
+  sem variação de grafia, mesmo padrão de cautela já usado para `forma_pagamento`). Fluxo de
+  cliente existente não é afetado.
 - **Não corrige o histórico legado**: as 122 unidades presas em `distrato` no dado legado (ver
   "Limitações conhecidas") não são reclassificadas por este código — a regra só passa a valer
   corretamente para ações novas feitas pela aplicação a partir de agora.
@@ -210,6 +216,29 @@ build && next start`, com qualquer composição (com ou sem `ChartContainer`, `C
   na época desta sessão) — não é regressão do código desta aplicação, é bug de uma versão específica
   do pacote. Fixar a versão em `3.10.1+` (ou testar visualmente após qualquer bump futuro de
   `recharts`) é recomendado para quem estender esta tela.
+
+### Vendas: campo perfil, tabs e tabela de unidades (sessão 8)
+
+- **Campo "Perfil" obrigatório** no cadastro de "Cliente novo" (`/vendas/novo`) — enum fechado
+  (`Morador`/`Investidor`/`Institucional`) validado via Zod (`lib/features/vendas/schema.ts`),
+  confirmado contra o banco real antes de fixar (ver "Decisões de modelagem" acima e
+  `docs/regras-de-negocio.md`, regra C7). Fluxo "Cliente existente" não é afetado.
+- **Duas tabelas de vendas viraram um componente de tabs** (shadcn/ui `Tabs`, primitiva
+  `@base-ui/react/tabs`, `components/ui/tabs.tsx`) — "Vendas ativas" como aba padrão, "Vendas
+  distratadas" como segunda aba, mesma altura fixa/scroll interno/sticky header de antes, só o
+  container visual mudou (busca e filtros continuam idênticos, aplicados às duas abas). Os dois
+  donuts no topo **não foram alterados** — continuam globais, não reagem à aba selecionada.
+- **Nova tabela de unidades** (`unidades-list.tsx`, somente leitura) abaixo das tabs: as 3.300
+  unidades cadastradas, filtro por `status_canonico` (4 categorias) e busca por identificador,
+  client-side (mesmo padrão sem paginação server-side das outras tabelas desta tela). Sempre
+  exibe `{empreendimento} — {identificador}`, nunca o identificador isolado (mesmo motivo já
+  documentado para a tabela de vendas — `unidades.identificador` não é único globalmente). Sem
+  ação de venda/distrato aqui.
+- **Achado não relacionado a esta sessão, pré-existente, não corrigido**: os dois donuts
+  renderizam legenda e texto de rodapé, mas nenhum setor visível de `<Pie>` no navegador usado
+  para validar esta sessão — confirmado pré-existente (reproduz igual revertendo todo o diff desta
+  sessão via `git stash`, no HEAD do commit anterior), não uma regressão introduzida aqui. Ver
+  `docs/log-tecnico-decisoes.md` seção 15 para o diagnóstico completo.
 
 ## Camada analítica
 
