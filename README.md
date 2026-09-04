@@ -150,6 +150,66 @@ fluxos de escrita da aplicação: `POST /api/vendas` e `POST /api/distratos`
   ```
   O teste usa a unidade `id = 4` do banco de trabalho; como o próprio teste distrata a venda que
   cria, ele é seguro para rodar em sequência sem precisar resetar o banco a cada execução.
+- **Toasts de confirmação** (`components/ui/sonner.tsx`, componente shadcn/ui `sonner`, montado em
+  `app/layout.tsx`): venda registrada e distrato registrado disparam toast de sucesso; erros de
+  negócio (409 — unidade indisponível, venda não ativa) disparam toast de erro reaproveitando a
+  mensagem já retornada pelo backend, não uma mensagem genérica nova.
+
+### Listagem de vendas — gráficos, tabelas separadas, busca e filtros (sessão 7)
+
+`/vendas` (`app/(dashboard)/vendas/`) deixou de ser só a listagem mínima de vendas ativas para
+escolher o que distratar (sessão 2) e passou a ser o dashboard completo da tela, mantendo a mesma
+fonte de leitura direta via Server Component (`listarVendasParaListagem`, `v_vendas_norm` sem
+filtro de status) e `contarUnidadesPorStatus` (`v_unidades_norm`, agregado por status canônico).
+
+- **Dois donuts no topo** (`vendas-charts.tsx`, `recharts` + `components/ui/chart.tsx` do
+  shadcn/ui): vendas ativas vs. distratadas, e unidades por status (4 fatias — vendida, disponível,
+  reservada, distrato). Ambos calculados sobre o universo completo carregado no servidor, **não**
+  reagem à busca/filtros da listagem abaixo (representam a proporção geral, não um recorte
+  filtrado). O donut de 4 fatias ficou legível com legenda (63%/28%/5,5%/3,7% do total, sem
+  sobreposição) — não foi necessário desdobrar em dois donuts separados. Cores do tema
+  (`app/globals.css`, tokens `--chart-1`..`--chart-4`) deixaram de ser grayscale placeholder (não
+  havia dashboard nenhum usando essas variáveis antes desta sessão) e passaram a um mapeamento fixo
+  por significado de negócio: `chart-1` = vendida/ativa (grafite-azulado do `--primary`), `chart-2`
+  = distrato (mesmo tom do `--destructive`), `chart-3` = disponível (dourado do `--accent`),
+  `chart-4` = reservada (cinza-azulado neutro).
+- **Duas tabelas separadas** (`vendas-ativas-list.tsx`, `vendas-distratadas-list.tsx`) em vez de
+  uma lista única — "Vendas ativas" (mesmas colunas de antes + ação Distratar) e "Vendas
+  distratadas" (mesmas colunas − ação + coluna "Data do distrato", sem ação, pois a aplicação não
+  suporta reverter distrato). Ambas com altura máxima fixa e scroll interno
+  (`max-h-112`/`max-h-128` conforme breakpoint, mobile-first) em vez de a página inteira rolando, e
+  cabeçalho de tabela `sticky` dentro do container com scroll (desktop). A tabela de distratadas
+  usa `data-testid="distrato-<id>"` (não `"venda-<id>"`), de propósito: o teste E2E persistido
+  espera `getByTestId("venda-<id>")` com contagem 0 imediatamente após um distrato — reusar o
+  mesmo prefixo faria a linha (que passa a existir na tabela de distratadas após o distrato)
+  quebrar essa asserção.
+- **Busca e filtros 100% client-side** (`lib/features/vendas/hooks/use-vendas-listagem.ts`): campo
+  de busca livre por cliente OU unidade (reaproveita `normalizarTexto` de
+  `lib/features/clientes/dedup.ts`, mesma normalização já usada no formulário de venda — sem lógica
+  nova), filtro de forma de pagamento (enum fechado C4), intervalo de data de venda (ambas as
+  tabelas) e intervalo de data de distrato (só a tabela de distratadas), todos combináveis em AND,
+  aplicados sobre o array já carregado pelo Server Component — sem round-trip ao servidor por
+  digitação/filtro (volume da base, 2.206 vendas, não justifica paginação server-side). Em ambas as
+  tabelas, a coluna "Unidade" mostra `{empreendimento} — {identificador}` (nunca o identificador
+  isolado — `unidades.identificador` não é único globalmente, ver seção "Camada de escrita" acima e
+  `docs/log-tecnico-decisoes.md` seção 5).
+- **Busca de unidade em `/vendas/novo`** (`use-venda-form.ts`, campo "Buscar por identificador ou
+  empreendimento" acima do `<select>` de unidade): mesmo padrão de normalização, filtra as opções
+  do select por identificador OU nome do empreendimento, client-side, sem alterar o formato de
+  exibição já existente (`{empreendimento} — {identificador} ({tipo})`).
+- **Achado técnico fora do escopo original — bug de renderização no `recharts@3.8.0`**: a versão
+  instalada automaticamente pelo CLI do shadcn/ui (`pnpm dlx shadcn add chart`) nunca renderizava
+  nenhum setor do `<Pie>` — `computePieSectors` (código-fonte do pacote,
+  `node_modules/recharts/es6/polar/Pie.js`) retorna `undefined` quando a soma dos valores do
+  `dataKey` sai `0`, e isso acontecia de forma reproduzível tanto em `next dev` quanto em `next
+build && next start`, com qualquer composição (com ou sem `ChartContainer`, `Cell`, tooltip,
+  legenda, um ou dois `<PieChart>` na mesma página). Diagnosticado inspecionando o estado Redux
+  interno do recharts direto no navegador (`store.getState().graphicalItems.polarItems` — o item
+  chegava registrado corretamente, com `dataKey`/`data` certos, mas o seletor `selectPieSectors`
+  não produzia setores). Resolvido atualizando para `recharts@3.10.1` (última patch da mesma major
+  na época desta sessão) — não é regressão do código desta aplicação, é bug de uma versão específica
+  do pacote. Fixar a versão em `3.10.1+` (ou testar visualmente após qualquer bump futuro de
+  `recharts`) é recomendado para quem estender esta tela.
 
 ## Camada analítica
 

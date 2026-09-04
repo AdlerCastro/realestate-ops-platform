@@ -373,6 +373,7 @@ humana explícita — nunca aplicada.
 5. **README final + revisão de limitações** — consolidação, não é sessão de código.
 6. ✅ **Correções na camada de escrita** (busca de cliente, aviso de dedup no cadastro, verificação
    do fluxo de distrato) — ver seção 13.
+7. ✅ **Vendas: gráficos, tabelas separadas, busca e filtros** — ver seção 14.
 
 ---
 
@@ -856,3 +857,132 @@ já está documentado no README, seção "Operação/Runbook".
 automatizado novo persistido para os itens 1/2, conforme escopo definido para esta sessão — só o
 teste E2E de venda/distrato já existente (`tests/e2e/vendas-distratos.spec.ts`) continua cobrindo o
 fluxo completo.
+
+---
+
+## 14. Sessão 7 — Vendas: gráficos, tabelas separadas, busca e filtros (04/09/2026)
+
+Escopo: telas `/vendas` (listagem) e `/vendas/novo` (busca de unidade), conforme instrução da
+sessão — dashboard analítico, assistente de LN e autenticação não tocados; lógica de dedup (regra
+C6) e guard de disponibilidade não reabertos. Nenhuma mudança de schema/dado fora do fluxo normal
+da aplicação (regra da seção 0 do `AGENTS.md`). Detalhamento funcional completo no README, seção
+"Camada de escrita" → "Listagem de vendas — gráficos, tabelas separadas, busca e filtros" — este
+registro aqui foca no que é `log-tecnico` (achados técnicos, decisões de implementação, histórico).
+
+### Dependências novas
+
+- `sonner` (toast) instalado via `pnpm dlx shadcn@latest add sonner` — não sobrescreveu nada
+  (arquivo novo, `components/ui/sonner.tsx`).
+- `chart` (shadcn/ui, wrapper de `recharts`) via `pnpm dlx shadcn@latest add chart` — o CLI tentou
+  sobrescrever `components/ui/card.tsx` (customizado com o tema grafite+dourado desde a sessão de
+  scaffolding); recusado (`overwrite? n`), mesmo cuidado já demonstrado com `card.tsx` em sessão
+  anterior. `components/ui/chart.tsx` (novo) instalado normalmente. Isso adicionou `recharts` como
+  dependency real do projeto (`package.json`) — necessário para os dois donuts pedidos, não havia
+  biblioteca de gráfico no projeto antes desta sessão.
+
+### Achado técnico — bug de renderização no `recharts@3.8.0`, resolvido com upgrade para `3.10.1`
+
+A versão instalada automaticamente pelo CLI do shadcn (`recharts@3.8.0`, a mais recente disponível
+no registry do shadcn no momento) nunca renderizava nenhum setor visível de `<Pie>` — os dois
+donuts apareciam como card vazio (só título, legenda e texto de rodapé, nenhuma fatia visível).
+
+**Investigação** (relevante para quem for depurar algo parecido no futuro, não só um "funcionou
+depois de trocar a versão"):
+
+1. Descartado como causa: tamanho do container (`ChartContainer`/`ResponsiveContainer` mediam
+   corretamente 256×256px via `getBoundingClientRect()`), StrictMode do React 19/Next.js (bug
+   reproduzido igualmente em `next build && next start`, sem StrictMode), múltiplos `<PieChart>` na
+   mesma página colidindo por `id` (testado com um único `<Pie>`, sem `ChartContainer`, sem `Cell`,
+   sem tooltip/legend, com `cx`/`cy`/`width`/`height` fixos — mesmo resultado vazio).
+2. Inspecionado o estado Redux interno do `recharts` direto no navegador (`recharts@3.x` usa
+   `@reduxjs/toolkit` internamente, um store por instância de `<PolarChart>` via `useRef`, não
+   compartilhado entre charts — descartando colisão de estado entre os dois donuts). Acessado via
+   fiber do React a partir do nó `<svg>` (`el['__reactFiber$...']`, subindo `.return` até achar
+   `memoizedProps.store`), depois `store.getState().graphicalItems.polarItems`: o item chegava
+   registrado **corretamente** (`id`, `type: "pie"`, `dataKey: "total"`, `data.length` certos).
+3. Rastreado até `computePieSectors` (`node_modules/recharts/es6/polar/Pie.js`): calcula
+   `sum = displayedData.reduce(...)` e só produz `sectors` `if (sum > 0)` — caso contrário retorna
+   `undefined`, e `PieImpl` trata `sectors == null` como "não renderizar nada" (`<Layer />` vazio).
+   Como o item registrado no store already tinha `dataKey`/`data` corretos, o problema estava em
+   algum lugar entre a leitura do store (`selectPieSectors`, seletor memoizado via `reselect`) e o
+   cálculo de `sum` — não foi isolado além disso porque o teste seguinte (upgrade de versão) já
+   resolveu o sintoma.
+4. `npm view recharts versions` mostrou patches mais recentes na mesma major (`3.9.x`, `3.10.x`,
+   `3.11.0-canary`) além do `3.8.0` que o shadcn instalou. `pnpm add recharts@3.10.1` (última
+   estável na época) resolveu o problema imediatamente — mesmo código, mesma composição
+   (`ChartContainer` + `Pie` + `Cell` + tooltip + legend), donuts renderizando corretamente tanto em
+   `next dev` quanto em `next build && next start`.
+
+**Conclusão**: bug de uma versão específica do pacote `recharts` (`3.8.0`), não do código desta
+aplicação nem de alguma peculiaridade do Next.js 16/Turbopack/React 19 deste projeto — corrigido
+fixando a versão em `3.10.1` (`package.json`). Registrado aqui para não ser redescoberto: se um
+bump futuro de `recharts` reintroduzir o sintoma (card de gráfico vazio, sem erro no console),
+verificar `store.getState().graphicalItems.polarItems` no navegador antes de assumir erro de
+composição do código próprio.
+
+### Paleta de cores dos gráficos (`app/globals.css`)
+
+Os tokens `--chart-1`..`--chart-5` existiam desde o scaffolding do tema (comentário original:
+"Cores de chart/radius não foram tocadas — fora do escopo desta sessão, não há dashboards ainda"),
+mas com valores grayscale placeholder do shadcn default, nunca usados por nenhum componente até
+esta sessão. Substituídos por um mapeamento fixo por significado de negócio (não union, direto no
+`:root`/`.dark`): `chart-1` = vendida/ativa (reaproveita o hue do `--primary`, grafite-azulado),
+`chart-2` = distrato (mesmo valor do `--destructive`), `chart-3` = disponível (hue do `--accent`,
+dourado), `chart-4` = reservada (cinza-azulado neutro, tom intermediário entre `--muted-foreground`
+e `--foreground`). `chart-5` mantido no valor grayscale original (não usado nesta sessão — só 4
+categorias de status existem).
+
+### `data-testid` da tabela de distratadas — decisão deliberada, não descuido
+
+A tabela de distratadas (`vendas-distratadas-list.tsx`) usa `data-testid="distrato-<id>"`, não
+`"venda-<id>"` como a tabela de ativas. Motivo: o teste E2E persistido
+(`tests/e2e/vendas-distratos.spec.ts`) distrata uma venda e imediatamente verifica
+`getByTestId("venda-<id>").toHaveCount(0)` — se a linha da venda recém-distratada (que passa a
+existir na tabela de distratadas após o distrato) reusasse o mesmo prefixo `"venda-"`, essa
+asserção quebraria (a contagem não seria mais 0). Verificado rodando o teste persistido depois da
+mudança — passou.
+
+### Verificação de qualidade
+
+`tsc --noEmit`, `pnpm lint` (eslint), `pnpm format:check` (prettier) e `pnpm build` (produção,
+Turbopack) — todos limpos após a implementação e após o upgrade do `recharts`. Teste E2E persistido
+(`pnpm test:e2e`) rodado múltiplas vezes ao longo da sessão (logo após a implementação inicial da
+listagem, depois de corrigir a colisão de label com o campo de busca de unidade — ver abaixo — e na
+verificação final) — passou em todas as execuções que chegaram a rodar contra o servidor de
+verdade; uma tentativa intermediária falhou **antes** de criar qualquer dado (falhou no primeiro
+passo, `selectOption` da Unidade, por causa da colisão de label corrigida logo em seguida — ver
+"Dado sintético deixado no banco de trabalho" abaixo para a contagem real de registros criados).
+
+Validação manual ad-hoc (Playwright, viewport 390×844 e 1512×793, spec descartado ao fim da sessão,
+conforme `AGENTS.md` seção 2): busca por cliente, busca por empreendimento, filtro de forma de
+pagamento combinado com busca (AND), filtro de intervalo de data de venda combinado com os
+anteriores (AND), filtro de intervalo de data de distrato isolado, "Limpar filtros", busca de
+unidade em `/vendas/novo` (912 opções sem filtro, 95 com "Cume Tower", 1 — só o placeholder — com
+termo sem correspondência), e confirmação visual de que os dois donuts renderizam com as
+proporções corretas em mobile e desktop.
+
+**Bug encontrado e corrigido durante a validação manual**: o campo de busca de unidade em
+`/vendas/novo` foi rotulado inicialmente "Buscar unidade" — como `getByLabel` do Playwright faz
+correspondência por substring (não exata) por padrão, esse rótulo colidia com
+`getByLabel("Unidade")` do teste E2E persistido (`"unidade"` é substring de `"Buscar unidade"`),
+quebrando `selectOption` no teste (`strict mode violation: resolved to 2 elements`). Renomeado para
+"Buscar por identificador ou empreendimento" (sem a palavra isolada "unidade" seguida do padrão que
+colide) — teste voltou a passar.
+
+### Dado sintético deixado no banco de trabalho
+
+Banco de trabalho confirmado pristino no início desta sessão (2.206 vendas, 2.691 clientes, 3.300
+unidades — bate exatamente com os números documentados nas seções anteriores; nenhum cliente
+sintético óbvio tipo "Adler Castro" duplicado encontrado, então o leftover de 1 par venda+distrato
+registrado na sessão 6 já tinha sido limpo por um reset anterior a esta sessão). As execuções do
+teste E2E persistido nesta sessão (`pnpm test:e2e`) criaram **3 registros novos** em `vendas` (ids
+`2207`, `2208` e `2209`, confirmado via query direta contra o banco de trabalho ao final da sessão)
+— cada uma um par venda+distrato sintético para a unidade `id = 4` ("Torre A - 0104") com o cliente
+`id = 1` ("Ursula Ferreira Ferreira"). O teste é seguro para rodar em sequência (distrata a própria
+venda que cria, devolvendo a unidade a `disponivel`), mas cada execução bem-sucedida deixa um
+registro histórico novo (a venda anterior já fica com `status_venda = 'distrato'`, não é
+sobrescrita) — total de vendas no banco de trabalho ao final: 2.209. Se indesejado antes da
+apresentação de 08/09, o
+procedimento de reset para a cópia pristina está documentado no README, seção "Operação/Runbook" —
+não executado nesta sessão (decisão
+de reset é do humano, não automática).
