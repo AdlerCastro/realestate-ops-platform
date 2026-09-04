@@ -29,3 +29,19 @@ const listarUnidadesDisponiveisStmt = db.prepare<[], UnidadeDisponivel>(`
 export function listarUnidadesDisponiveis(): UnidadeDisponivel[] {
   return listarUnidadesDisponiveisStmt.all();
 }
+
+export interface UnidadesPorStatus {
+  status_canonico: "vendida" | "disponivel" | "reservada" | "distrato";
+  total: number;
+}
+
+const contarUnidadesPorStatusStmt = db.prepare<[], UnidadesPorStatus>(`
+  SELECT status_canonico, COUNT(*) AS total
+  FROM v_unidades_norm
+  GROUP BY status_canonico
+`);
+
+/** Distribuição de todas as 3.300 unidades por status canônico — fonte do gráfico donut de /vendas. */
+export function contarUnidadesPorStatus(): UnidadesPorStatus[] {
+  return contarUnidadesPorStatusStmt.all();
+}

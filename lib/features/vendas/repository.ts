@@ -24,6 +24,20 @@ export interface VendaAtivaListItem {
   data_venda: string;
 }
 
+export interface VendaListagemItem {
+  id: number;
+  unidade_id: number;
+  unidade_identificador: string;
+  empreendimento_nome: string;
+  cliente_id: number;
+  cliente_nome: string;
+  valor_venda: number;
+  forma_pagamento: string;
+  data_venda: string;
+  status_canonico: "ativa" | "distrato";
+  data_distrato: string | null;
+}
+
 const atualizarUnidadeParaVendidaStmt = db.prepare(`
   UPDATE unidades
   SET status = 'vendida'
@@ -151,4 +165,35 @@ const listarVendasAtivasStmt = db.prepare<[], VendaAtivaListItem>(`
 /** Listagem mínima para o fluxo de distrato escolher qual venda reverter — não é o dashboard de vendas (sessão 3). */
 export function listarVendasAtivas(): VendaAtivaListItem[] {
   return listarVendasAtivasStmt.all();
+}
+
+const listarVendasParaListagemStmt = db.prepare<[], VendaListagemItem>(`
+  SELECT
+    v.id,
+    v.unidade_id,
+    u.identificador AS unidade_identificador,
+    e.nome AS empreendimento_nome,
+    v.cliente_id,
+    c.nome AS cliente_nome,
+    v.valor_venda,
+    v.forma_pagamento,
+    v.data_venda,
+    v.status_canonico,
+    v.data_distrato
+  FROM v_vendas_norm v
+  JOIN unidades u ON u.id = v.unidade_id
+  JOIN empreendimentos e ON e.id = u.empreendimento_id
+  JOIN clientes c ON c.id = v.cliente_id
+  ORDER BY v.data_venda DESC
+`);
+
+/**
+ * Universo completo de vendas (ativas + distratadas), com nome do
+ * empreendimento junto ao identificador da unidade (unidades.identificador
+ * não é único globalmente, só dentro do empreendimento — ver
+ * docs/log-tecnico-decisoes.md, seção 5). Busca e filtros da tela /vendas
+ * operam sobre este conjunto já carregado, inteiramente client-side.
+ */
+export function listarVendasParaListagem(): VendaListagemItem[] {
+  return listarVendasParaListagemStmt.all();
 }
