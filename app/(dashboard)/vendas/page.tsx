@@ -1,12 +1,16 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { listarVendasParaListagem } from "@/lib/features/vendas/repository";
-import { contarUnidadesPorStatus } from "@/lib/features/unidades/repository";
+import {
+  contarUnidadesPorStatus,
+  listarUnidadesParaListagem,
+} from "@/lib/features/unidades/repository";
 import { VendasDashboard } from "./vendas-dashboard";
 
 export default async function VendasPage() {
   const vendas = listarVendasParaListagem();
   const unidadesPorStatus = contarUnidadesPorStatus();
+  const unidades = listarUnidadesParaListagem();
 
   return (
     <div className="flex flex-col gap-4">
@@ -16,7 +20,11 @@ export default async function VendasPage() {
           Nova venda
         </Button>
       </div>
-      <VendasDashboard vendas={vendas} unidadesPorStatus={unidadesPorStatus} />
+      <VendasDashboard
+        vendas={vendas}
+        unidadesPorStatus={unidadesPorStatus}
+        unidades={unidades}
+      />
     </div>
   );
 }
