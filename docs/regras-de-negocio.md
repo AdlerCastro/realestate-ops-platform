@@ -240,18 +240,39 @@ aberto.
 
 ---
 
-### C6. Sem checagem de duplicidade de cliente no cadastro
+### C6. Sem checagem de duplicidade de cliente no cadastro — **REVERTIDA (04/09/2026)**
 
-**Regra**: o fluxo de venda que cria um cliente novo não verifica duplicidade no momento do
-cadastro — a dedup (regra B4) é responsabilidade exclusiva da camada de leitura/analítica.
+~~**Regra**: o fluxo de venda que cria um cliente novo não verifica duplicidade no momento do
+cadastro — a dedup (regra B4) é responsabilidade exclusiva da camada de leitura/analítica.~~
 
-**Por quê**: checar duplicidade em tempo de escrita exigiria decidir, na hora, se um possível
+~~**Por quê**: checar duplicidade em tempo de escrita exigiria decidir, na hora, se um possível
 duplicado deve bloquear o cadastro ou não — uma decisão de UX/negócio que não estava no escopo
-definido, e que poderia impedir cadastros legítimos por falso positivo.
+definido, e que poderia impedir cadastros legítimos por falso positivo.~~
 
-**Como foi analisado**: decisão de escopo, não uma contagem — mantém a responsabilidade de
+~~**Como foi analisado**: decisão de escopo, não uma contagem — mantém a responsabilidade de
 dedup centralizada em um único lugar (lib/features/clientes/dedup.ts), evitando lógica duplicada
-ou divergente entre o momento de escrita e o de leitura.
+ou divergente entre o momento de escrita e o de leitura.~~
+
+**Regra atual (04/09/2026)**: o fluxo de "cliente novo" passa a checar duplicidade contra a base
+completa de clientes já carregada no formulário, usando a mesma `chaveDedup` (nome+cidade
+normalizados) da regra B4 — mas **não bloqueia** o cadastro. Ao submeter com nome+cidade que já
+correspondem a um cliente existente, um aviso inline não-bloqueante lista o(s) cliente(s)
+encontrados, com um atalho para reaproveitar o cadastro existente ("usar este cliente", troca para
+o fluxo de cliente existente com esse cliente pré-selecionado) ou seguir com o cadastro normalmente
+("cadastrar mesmo assim"). Sem correspondência, o formulário funciona exatamente como antes, sem
+nenhum aviso.
+
+**Por quê**: pedido explícito do responsável pelo projeto, motivado pelo enunciado do teste técnico
+avaliar especificamente a robustez da camada de escrita (componente mais observado da avaliação).
+O motivo original da C6 (falso positivo bloqueando cadastro legítimo) continua válido como
+preocupação — por isso a checagem é só um aviso, nunca um bloqueio, preservando a razão original de
+não impedir cadastros legítimos, apenas mudando de "nenhum aviso" para "aviso sem fricção".
+
+**Como foi implementado**: checagem síncrona no `onSubmit` do formulário (não live/debounced
+enquanto o usuário digita), reaproveitando `chaveDedup` de `lib/features/clientes/dedup.ts` — sem
+lógica de normalização nova, sem chamada ao servidor (a lista de clientes já está carregada pelo
+Server Component). A responsabilidade de dedup continua centralizada no mesmo módulo, só passou a
+ser consultada também no momento de escrita, não só na leitura.
 
 ---
 
@@ -298,20 +319,20 @@ especificado por ninguém.
 
 ## Resumo — tabela de rastreabilidade
 
-| #   | Regra                                                | Categoria   | Evidência                                                      |
-| --- | ---------------------------------------------------- | ----------- | -------------------------------------------------------------- |
-| A1  | Normalização de status de unidade                    | Dado        | 11 grafias contadas contra o banco                             |
-| A2  | Normalização de status de venda                      | Dado        | 6 grafias contadas contra o banco                              |
-| A3  | Status texto vence sobre data                        | Dado        | 46 vendas divergentes, 100% concordância com status da unidade |
-| B1  | Total ofertado = todas as unidades                   | Métrica     | Nenhum status sinaliza remoção de oferta                       |
-| B2  | Velocidade líquida de distrato                       | Métrica     | Consequência de A1                                             |
-| B3  | Estouro de custo = soma bruta positiva               | Métrica     | Caso Cume Tower (bruto R$3,1M vs. líquido R$54mil)             |
-| B4  | Dedup nome+cidade, confiança por e-mail sintético    | Métrica     | 97 grupos, 89 alta / 8 baixa confiança                         |
-| C1  | Guard de disponibilidade via UPDATE...WHERE          | Escrita     | Garantia por construção (lock SQLite)                          |
-| C2  | Distrato devolve unidade                             | Escrita     | Espelha C1                                                     |
-| C3  | valor_venda livre, não de valor_tabela               | Escrita     | Decisão de modelagem                                           |
-| C4  | forma_pagamento enum fechado (3 valores)             | Escrita     | Verificação manual, sem grafia suja                            |
-| C5  | cidade obrigatória em cliente novo                   | Escrita     | Dependência da regra B4                                        |
-| C6  | Sem checagem de dedup no cadastro                    | Escrita     | Decisão de escopo                                              |
-| D1  | 122 unidades presas — bucket separado, não corrigido | Governança  | Contagem contra o banco                                        |
-| E1  | Sem RBAC                                             | Autorização | Fora de escopo do enunciado                                    |
+| #   | Regra                                                 | Categoria   | Evidência                                                      |
+| --- | ----------------------------------------------------- | ----------- | -------------------------------------------------------------- |
+| A1  | Normalização de status de unidade                     | Dado        | 11 grafias contadas contra o banco                             |
+| A2  | Normalização de status de venda                       | Dado        | 6 grafias contadas contra o banco                              |
+| A3  | Status texto vence sobre data                         | Dado        | 46 vendas divergentes, 100% concordância com status da unidade |
+| B1  | Total ofertado = todas as unidades                    | Métrica     | Nenhum status sinaliza remoção de oferta                       |
+| B2  | Velocidade líquida de distrato                        | Métrica     | Consequência de A1                                             |
+| B3  | Estouro de custo = soma bruta positiva                | Métrica     | Caso Cume Tower (bruto R$3,1M vs. líquido R$54mil)             |
+| B4  | Dedup nome+cidade, confiança por e-mail sintético     | Métrica     | 97 grupos, 89 alta / 8 baixa confiança                         |
+| C1  | Guard de disponibilidade via UPDATE...WHERE           | Escrita     | Garantia por construção (lock SQLite)                          |
+| C2  | Distrato devolve unidade                              | Escrita     | Espelha C1                                                     |
+| C3  | valor_venda livre, não de valor_tabela                | Escrita     | Decisão de modelagem                                           |
+| C4  | forma_pagamento enum fechado (3 valores)              | Escrita     | Verificação manual, sem grafia suja                            |
+| C5  | cidade obrigatória em cliente novo                    | Escrita     | Dependência da regra B4                                        |
+| C6  | Aviso não-bloqueante de dedup no cadastro (revertida) | Escrita     | Pedido explícito (04/09/2026), ver texto da regra              |
+| D1  | 122 unidades presas — bucket separado, não corrigido  | Governança  | Contagem contra o banco                                        |
+| E1  | Sem RBAC                                              | Autorização | Fora de escopo do enunciado                                    |

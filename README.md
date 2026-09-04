@@ -112,11 +112,18 @@ fluxos de escrita da aplicação: `POST /api/vendas` e `POST /api/distratos`
   não modificado na implementação.
 - **`valor_venda` é campo livre**: negociado no momento da venda, validado via Zod só como número
   positivo — nunca puxado automaticamente de `unidades.valor_tabela`.
-- **Sem checagem de duplicidade de cliente no cadastro**: o fluxo de "cliente novo" insere
-  livremente. A deduplicação (`lib/features/clientes/dedup.ts`) é responsabilidade exclusiva da
-  camada de leitura — a busca de "cliente existente" no formulário reaproveita a mesma
-  normalização (`normalizarTexto`), sem `LIKE` em SQL puro, filtrando no cliente o universo
-  completo já carregado pelo Server Component.
+- **Aviso não-bloqueante de duplicidade no cadastro de cliente novo** (regra C6 revertida em
+  04/09/2026, ver `docs/regras-de-negocio.md`): ao submeter o formulário com "Cliente novo", a
+  mesma `chaveDedup` (nome+cidade normalizados) da deduplicação de leitura
+  (`lib/features/clientes/dedup.ts`) é checada contra a base de clientes já carregada. Se houver
+  correspondência, um aviso inline lista o(s) cliente(s) existentes com um atalho para reaproveitar
+  o cadastro ("usar este cliente") ou seguir mesmo assim ("cadastrar mesmo assim") — nunca bloqueia
+  o cadastro. Sem correspondência, o formulário funciona como antes. O backend
+  (`POST /api/vendas`) continua sem checagem própria — a responsabilidade de dedup continua
+  centralizada no mesmo módulo, só passou a ser consultada também no client antes do submit. A
+  busca de "cliente existente" no formulário reaproveita a mesma normalização
+  (`normalizarTexto`), sem `LIKE` em SQL puro, filtrando no cliente o universo completo já
+  carregado pelo Server Component.
 - **Premissa assumida**: `clientes.cidade` é `NULL`-ável no schema real, mas o formulário de
   cliente novo exige nome e cidade (só `uf`/`email` são opcionais) — a dedup de leitura depende de
   nome+cidade normalizados, então permitir cidade vazia criaria clientes que nunca entram em
