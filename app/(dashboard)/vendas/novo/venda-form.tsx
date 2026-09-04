@@ -23,6 +23,7 @@ interface VendaFormProps {
 }
 
 export function VendaForm({ unidades, clientes }: VendaFormProps) {
+  const buscaUnidadeId = useId();
   const unidadeId = useId();
   const valorId = useId();
   const formaPagamentoId = useId();
@@ -50,6 +51,19 @@ export function VendaForm({ unidades, clientes }: VendaFormProps) {
           className="flex flex-col gap-4"
           noValidate
         >
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor={buscaUnidadeId}>
+              Buscar por identificador ou empreendimento
+            </Label>
+            <Input
+              id={buscaUnidadeId}
+              type="text"
+              placeholder="Identificador ou nome do empreendimento"
+              value={vm.buscaUnidade}
+              onChange={(event) => vm.setBuscaUnidade(event.target.value)}
+            />
+          </div>
+
           <div className="flex flex-col gap-1.5">
             <Label htmlFor={unidadeId}>Unidade</Label>
             <Select

@@ -48,6 +48,7 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
   const router = useRouter();
 
   const [unidadeId, setUnidadeId] = useState("");
+  const [buscaUnidade, setBuscaUnidade] = useState("");
   const [valorVenda, setValorVenda] = useState("");
   const [formaPagamento, setFormaPagamento] = useState<FormaPagamento | "">("");
   const [modoCliente, setModoCliente] = useState<ModoCliente>("existente");
@@ -98,6 +99,20 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
       .filter((c) => normalizarTexto(c.nome).includes(termo))
       .slice(0, LIMITE_RESULTADOS_BUSCA);
   }, [clientes, buscaCliente]);
+
+  // Mesma normalização/padrão da busca de cliente acima — filtra por
+  // identificador OU nome do empreendimento, sem limite artificial (a
+  // seleção final é feita no próprio <select>, não numa lista separada).
+  const unidadesFiltradas = useMemo(() => {
+    const termo = normalizarTexto(buscaUnidade);
+    if (!termo) return unidades;
+
+    return unidades.filter(
+      (u) =>
+        normalizarTexto(u.identificador).includes(termo) ||
+        normalizarTexto(u.empreendimento_nome).includes(termo),
+    );
+  }, [unidades, buscaUnidade]);
 
   const mutation = useMutation({
     mutationFn: criarVenda,
@@ -169,7 +184,9 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
   }
 
   return {
-    unidades,
+    unidades: unidadesFiltradas,
+    buscaUnidade,
+    setBuscaUnidade,
     unidadeId,
     setUnidadeId,
     valorVenda,
