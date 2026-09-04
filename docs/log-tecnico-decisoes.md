@@ -370,7 +370,9 @@ humana explícita — nunca aplicada.
 4. ✅ **Assistente de linguagem natural** — duas chamadas Groq, guardrails, UI com SQL + resultado.
    Ver seção 11 para o detalhamento completo desta sessão, incluindo a troca de modelo e o teste
    manual pendente.
-5. **README final + revisão de limitações** — consolidação, não é sessão de código.
+5. ✅ Playwright promovido a devDependency real — ver seção 12.
+6. ✅ **Dashboard analítico — filtros e gráficos** — cidade/UF/tipo/período sobre as 4 perguntas de
+   negócio, gráficos bar/area do catálogo shadcn/ui. Ver seção 13 para o detalhamento completo.
 
 ---
 
@@ -765,3 +767,145 @@ escrita", lista de scripts, e a nota de limitação sobre CI), `docs/log-tecnico
 3, este documento) e `.claude/agents/frontend.md` (checklist de validação). `.claude/agents/
 devops.md` não precisou de alteração — a regra "Playwright fora do pipeline de CI" ali é
 independente de ele ser ou não devDependency do projeto.
+
+---
+
+## 13. Sessão 6 — Dashboard analítico: filtros e gráficos (04/09/2026)
+
+Escopo fechado no início da sessão: só `/analitico` — filtros (cidade/UF/tipo/período) e gráficos
+para as 4 perguntas de negócio já fechadas na sessão 3. Nenhum filtro altera a fórmula de nenhuma
+métrica (regras B1-B4 de `docs/regras-de-negocio.md`) — filtro muda só o subconjunto de linhas
+exibido, nunca numerador/denominador. Assistente de linguagem natural e camada de escrita fora de
+escopo, não tocados.
+
+### Decisão parada para aprovação humana — `modelo_negocio` excluído dos filtros
+
+Antes de escrever qualquer filtro, checagem contra o banco real (`SELECT DISTINCT` nas 4 colunas
+candidatas a filtro de `empreendimentos`) encontrou `cidade`/`uf`/`tipo` limpos (12 cidades, 10 UFs,
+exatamente 3 valores de `tipo`), mas `modelo_negocio` com 9 grafias brutas para ~3 categorias reais
+(`SPE Incorporadora`/`spe incorporadora`/`SPE incorporadora`; `Obra por Administração`/`obra por
+administracao`/`OBRA POR ADM`; `incorporacao`/`Incorporação`/`Incorporacao`) — mesmo padrão sujo de
+A1/A2, mas sem view nem regra fechada em `docs/regras-de-negocio.md` para essa coluna. Parado e
+perguntado ao humano antes de decidir por conta própria (regra do `AGENTS.md` seção 4 e instrução
+explícita da sessão: "se algum [filtro] não for [trivial], pare e pergunte antes de prosseguir").
+
+**Decisão do humano**: excluir `modelo_negocio` dos filtros nesta sessão, em vez de normalizar em
+TypeScript ou expor as 9 grafias brutas. Os 4 filtros implementados (perguntas 1 e 2) são só
+cidade/UF/tipo. Se um filtro por modelo de negócio for necessário no futuro, precisa de uma decisão
+explícita de normalização (provavelmente análoga a A1/A2, mas em TS por cima de `empreendimentos`,
+já que não há view para essa coluna) — não implementado, não assumido.
+
+### Arquitetura de filtro: Server Component busca tudo, Client Component filtra local
+
+Mantém a arquitetura já travada (seção 3: Server Components lendo o banco direto, sem round-trip
+HTTP) sem contradizer o requisito de estado de filtro local (`useState`, sem URL): o repository
+(`lib/features/analitico/repository.ts`) passou a expor listas **sem agregação prévia por filtro**
+— granularidade completa (uma linha por empreendimento para velocidade; uma linha por
+empreendimento×mês para estouro de custo e para divergência financeira) — e cada seção virou um
+Client Component (`"use client"`) que recebe essa lista completa via props do Server Component
+(`page.tsx`) e faz filtro + agregação inteiramente no browser com `useMemo`, sem nova consulta ao
+banco a cada mudança de filtro. Tipos são importados com `import type` nos client components para
+não puxar `lib/db/connection` (e `better-sqlite3`) para o bundle do cliente.
+
+- `listarVelocidadeVendas()` — mesma função da sessão 3, só ganhou `cidade`/`uf`/`tipo` no SELECT
+  (join com `empreendimentos` já existia). Fórmula (numerador `status_canonico='vendida'`,
+  denominador todas as unidades) inalterada.
+- `listarRiscoEstouroCusto()` (agregada, sessão 3) foi **substituída** por
+  `listarEstouroCustoMensal()` (uma linha por empreendimento×mês, com `cidade`/`uf`/`tipo`) — a
+  agregação bruta/líquida (critério da regra B3) passou para uma função pura no client component
+  (`agregar()` em `risco-estouro-custo-section.tsx`), que soma só o subconjunto de meses que passou
+  pelo filtro de cidade/UF/tipo/período. Sem filtro (estado inicial), a agregação bate exatamente
+  com os números validados na sessão 3 (Panorama do Parque R$5.870.238,38 top-1, Cume Tower
+  R$3.106.416,68/R$53.966,04 bruto/líquido) — confirmado via script ad-hoc contra o banco real antes
+  de considerar a sessão concluída.
+- Nova função `listarDivergenciaMensal()` (uma linha por empreendimento×mês de
+  `v_financeiro_reconciliado`) alimenta o gráfico de área da pergunta 4. `obterDivergenciaFinanceira()`
+  (agregada, sessão 3) foi mantida como está — usada para os stat cards de totais e para ordenar as
+  opções do seletor de empreendimento (por soma de diferença absoluta desc).
+- Nenhuma `CREATE VIEW` nova, nenhum `ALTER TABLE` — todas as queries novas são `SELECT` puro sobre
+  tabelas/views já existentes (regra da seção 0 do `AGENTS.md`).
+
+### Filtro de período (estouro de custo) — preset simples, não intervalo livre
+
+A pergunta 2 pedia filtro de período sobre `obra_andamento.mes_referencia`, com a instrução
+explícita de "usar o padrão mais simples de implementar dado o tempo disponível". Implementado como
+um `<select>` com 4 presets (Todo o período / Últimos 6 / 12 / 24 meses), calculado contra a data
+corrente do sistema (`new Date()`) e comparado por string lexicográfica contra `mes_referencia`
+(formato `'YYYY-MM-01'`, já ordenável como string) — sem biblioteca de data nova. Descartada a opção
+de intervalo livre (dois seletores De/Até) por custar mais tempo de implementação sem ganho
+perceptível para o prazo desta sessão.
+
+### Gráficos — shadcn/ui chart + recharts (nova dependência)
+
+`components/ui/chart.tsx` instalado via `pnpm dlx shadcn@latest add chart` (wrapper padrão do
+catálogo shadcn — `ChartContainer`/`ChartTooltip`/`ChartConfig`, tema já usa as variáveis
+`--chart-1`..`--chart-5` existentes em `app/globals.css`). Isso trouxe `recharts@3.8.0` como
+**dependency real** do projeto (não dev — os gráficos rodam no client, em produção). O instalador
+tentou sobrescrever `components/ui/card.tsx` (já customizado neste projeto); respondido "não" à
+sobrescrita — só `chart.tsx` foi criado, `card.tsx` ficou intacto (confirmado via diff antes de
+prosseguir).
+
+Só bar chart (`BarChart`/`Bar`) e area chart (`AreaChart`/`Area`) foram usados, conforme decisão
+explícita da sessão — radar e radial não têm dado compatível com nenhuma das 4 perguntas e não
+foram introduzidos em nenhuma tela:
+
+- **Pergunta 1** (velocidade): duas seções de bar horizontal (`layout="vertical"` no recharts) —
+  "3 piores" (cor `--destructive`) e "3 melhores" (cor `--accent`), cada uma recalculada sobre o
+  subconjunto filtrado, com `.slice(0, 3)` (nunca quebra se o filtro reduzir a menos de 3
+  empreendimentos). Ressalva sobre a métrica não ser normalizada por tempo desde o lançamento fica
+  visível acima de ambas as seções, não só da pior.
+- **Pergunta 2** (estouro de custo): bar duplo horizontal, duas barras por empreendimento
+  (magnitude bruta / desvio líquido de referência), top-5 (confirmado contra a seção 9 antes de
+  fixar o corte — já era top-5 desde a sessão 3, não top-3). Cume Tower é forçado a aparecer no
+  conjunto exibido sempre que estiver presente no subconjunto filtrado (mesmo fora do top-5
+  nominal), porque é a evidência textual da regra B3; se o filtro excluir o empreendimento de fato
+  do subconjunto, o texto de apoio troca para uma frase genérica sem citar o projeto — nunca cita
+  um caso ausente dos dados filtrados atuais.
+- **Pergunta 4** (divergência financeira): area chart, eixo X = `mes_referencia`, duas séries
+  sobrepostas (`resultado_reportado`/`resultado_recalculado`, sem `stackId`, sobrepostas de
+  propósito para tornar visível onde as áreas não coincidem). Seletor de empreendimento é estado
+  local só deste gráfico (`useState`, não afeta as perguntas 1/2/3) — sem seleção nenhuma no estado
+  inicial, gráfico começa vazio (nem default, nem o de maior divergência), conforme pedido.
+
+### Pergunta 3 (duplicidade de cliente) — sem mudança de lógica, só de apresentação
+
+Nenhum filtro (regra explícita: retrato global independente dos filtros das outras 3 perguntas).
+Reaproveita `classificarGruposDedup`/`chaveDedup` de `lib/features/clientes/dedup.ts` sem nenhuma
+lógica nova — só a apresentação em `duplicidade-cliente-section.tsx` mudou: stat cards explícitos
+para os 4 números pedidos (97 grupos; 89 alta / 8 baixa confiança; clientes compradores únicos;
+ticket médio), confirmados contra o banco real via script ad-hoc antes de considerar a sessão
+concluída (**1.440** clientes / **R$ 3.167.271,61** de ticket médio — bate exatamente com a regra
+B4 de `docs/regras-de-negocio.md`, o número histórico de 1.436/R$3.176.094,10 nunca é renderizado
+na tela). Prosa de explicação de método expandida para cobrir explicitamente por que e-mail sozinho
+não serve como sinal geral de dedup nesta base (gerado a partir do próprio ID do cliente, garante
+unicidade artificial mesmo entre prováveis duplicatas reais) — esse ponto já estava documentado em
+`docs/regras-de-negocio.md` B4, mas não estava na prosa visível da UI antes desta sessão.
+
+### Validação mobile-first e acessibilidade — Playwright ad-hoc
+
+Chrome DevTools via extensão MCP não honrou o resize de viewport neste ambiente (testado 2x, sem
+efeito — screenshot sempre voltava à resolução desktop real da janela) — descartada essa rota após
+a tentativa falhar de forma consistente, conforme orientação de não insistir em ferramenta de
+browser que não responde como esperado. Validação refeita via Playwright ad-hoc (`npx
+playwright@1.62.1 test`, spec temporário dentro de `tests/e2e/` só durante a execução, removido ao
+final — não commitado, conforme exceção da seção 2 do `AGENTS.md`):
+
+- **Mobile (390×844)**: `document.body.scrollWidth` = `window.innerWidth` exatos (390px) — sem
+  overflow horizontal. Filtros empilham em coluna única, cards e gráficos legíveis (confirmado por
+  screenshot).
+- **Desktop (1280px)**: mesma checagem de largura, sem quebra.
+- **Acessibilidade básica**: todos os `<select>` de filtro (cidade/UF/tipo/período/empreendimento)
+  resolvidos via `getByLabel` do Playwright (só resolve com associação real `<Label htmlFor>` ↔
+  `<select id>`), navegação por teclado testada (foco + `ArrowDown` mudando o valor selecionado).
+
+Fluxo completo também conferido manualmente via Chrome MCP (fora do viewport mobile, já que o
+resize não funcionou): login com `candidato@cambara-teste.com.br`, os 4 gráficos renderizando com
+os números esperados, seleção de empreendimento no gráfico de divergência mostrando a série
+temporal com a divergência visualmente aparente entre as duas áreas.
+
+### Escopo não tocado, conforme instruído
+
+Assistente de linguagem natural (`/assistente`) e camada de escrita (`/vendas`, distratos) não
+foram tocados nesta sessão. Havia uma alteração pré-existente não commitada em
+`app/(dashboard)/vendas/page.tsx` no início da sessão (fora do escopo desta sessão) — não mexida,
+deixada como estava encontrada.
