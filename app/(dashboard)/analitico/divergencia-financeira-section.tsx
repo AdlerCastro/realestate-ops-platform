@@ -1,82 +1,57 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+
 import type {
-  DivergenciaEmpreendimentoItem,
   DivergenciaFinanceiraResumo,
+  DivergenciaMensalItem,
 } from "@/lib/features/analitico/repository";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 
 const formatarValor = (valor: number) =>
   valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-const LIMITE_INICIAL = 8;
+const formatarValorCurto = (valor: number) =>
+  `${valor < 0 ? "-" : ""}R$${(Math.abs(valor) / 1_000_000).toFixed(1)}M`;
+
+const formatarMes = (iso: string) =>
+  new Date(iso).toLocaleDateString("pt-BR", {
+    month: "short",
+    year: "2-digit",
+  });
+
+const chartConfig: ChartConfig = {
+  resultadoReportado: { label: "Resultado reportado", color: "var(--chart-1)" },
+  resultadoRecalculado: {
+    label: "Resultado recalculado",
+    color: "var(--chart-4)",
+  },
+};
 
 interface DivergenciaFinanceiraSectionProps {
   resumo: DivergenciaFinanceiraResumo;
+  mensal: DivergenciaMensalItem[];
 }
 
-function ListaDivergencia({
-  itens,
-}: {
-  itens: DivergenciaEmpreendimentoItem[];
-}) {
-  return (
-    <>
-      {/* Mobile-first: lista empilhada por padrão; tabela a partir de md. */}
-      <ol className="flex flex-col gap-2 md:hidden">
-        {itens.map((item) => (
-          <li
-            key={item.empreendimentoId}
-            className="flex flex-col gap-1 rounded-lg border border-border p-3"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-medium">{item.nome}</span>
-              <span className="text-sm font-semibold">
-                {formatarValor(item.somaAbsDiferenca)}
-              </span>
-            </div>
-            <span className="text-xs text-muted-foreground">
-              {item.mesesDivergentes} de {item.mesesTotal} meses divergentes
-            </span>
-          </li>
-        ))}
-      </ol>
-
-      <div className="hidden overflow-x-auto md:block">
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="border-b border-border text-muted-foreground">
-              <th className="py-2 pr-4 font-medium">Empreendimento</th>
-              <th className="py-2 pr-4 font-medium">Meses divergentes</th>
-              <th className="py-2 pr-0 font-medium">Soma abs. diferença</th>
-            </tr>
-          </thead>
-          <tbody>
-            {itens.map((item) => (
-              <tr
-                key={item.empreendimentoId}
-                className="border-b border-border last:border-0"
-              >
-                <td className="py-2 pr-4">{item.nome}</td>
-                <td className="py-2 pr-4">
-                  {item.mesesDivergentes} / {item.mesesTotal}
-                </td>
-                <td className="py-2 pr-0 font-medium">
-                  {formatarValor(item.somaAbsDiferenca)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
-}
-
-// porEmpreendimento já vem ordenado por somaAbsDiferenca DESC do
-// repository, incluindo os empreendimentos sem nenhum mês divergente
-// (zero) — só o recorte inicial de exibição no mobile é decisão do front.
+// Seletor de empreendimento é LOCAL a este gráfico (estado próprio, não
+// afeta as perguntas 1/2/3). Gráfico começa vazio — nenhum default, nem o
+// de maior divergência — só renderiza depois da primeira escolha do
+// usuário.
 export function DivergenciaFinanceiraSection({
   resumo,
+  mensal,
 }: DivergenciaFinanceiraSectionProps) {
+  const [empreendimentoId, setEmpreendimentoId] = useState<string>("");
+
   const {
     totalMeses,
     totalDivergentes,
@@ -85,8 +60,27 @@ export function DivergenciaFinanceiraSection({
     porEmpreendimento,
   } = resumo;
 
-  const visiveis = porEmpreendimento.slice(0, LIMITE_INICIAL);
-  const restante = porEmpreendimento.slice(LIMITE_INICIAL);
+  // Opções ordenadas por soma de diferença absoluta desc (já vem assim do
+  // repository) — ajuda a achar rápido quem mais diverge, mas nada é
+  // selecionado por padrão.
+  const opcoes = porEmpreendimento;
+
+  const serie = useMemo(() => {
+    if (!empreendimentoId) return [];
+    const id = Number(empreendimentoId);
+    return mensal
+      .filter((m) => m.empreendimentoId === id)
+      .sort((a, b) => a.mesReferencia.localeCompare(b.mesReferencia))
+      .map((m) => ({
+        mes: formatarMes(m.mesReferencia),
+        resultadoReportado: Math.round(m.resultadoReportado),
+        resultadoRecalculado: Math.round(m.resultadoRecalculado),
+      }));
+  }, [mensal, empreendimentoId]);
+
+  const empreendimentoSelecionado = opcoes.find(
+    (o) => String(o.empreendimentoId) === empreendimentoId,
+  );
 
   return (
     <Card>
@@ -130,17 +124,111 @@ export function DivergenciaFinanceiraSection({
           </div>
         </div>
 
-        <ListaDivergencia itens={visiveis} />
+        <div className="flex flex-col gap-1 sm:w-72">
+          <Label htmlFor="divergencia-filtro-empreendimento">
+            Empreendimento
+          </Label>
+          <Select
+            id="divergencia-filtro-empreendimento"
+            value={empreendimentoId}
+            onChange={(e) => setEmpreendimentoId(e.target.value)}
+          >
+            <option value="" disabled>
+              Selecione um empreendimento
+            </option>
+            {opcoes.map((o) => (
+              <option key={o.empreendimentoId} value={o.empreendimentoId}>
+                {o.nome} ({o.mesesDivergentes} meses divergentes)
+              </option>
+            ))}
+          </Select>
+        </div>
 
-        {restante.length > 0 && (
-          <details>
-            <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">
-              Ver mais {restante.length} empreendimentos
-            </summary>
-            <div className="mt-2">
-              <ListaDivergencia itens={restante} />
+        {!empreendimentoId ? (
+          <p className="text-sm text-muted-foreground">
+            Selecione um empreendimento acima para ver a série temporal de
+            resultado reportado vs. recalculado.
+          </p>
+        ) : serie.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nenhum dado financeiro para este empreendimento.
+          </p>
+        ) : (
+          <>
+            <ChartContainer
+              config={chartConfig}
+              className="aspect-auto h-64 w-full sm:h-72"
+            >
+              <AreaChart data={serie} margin={{ left: 0, right: 8 }}>
+                <CartesianGrid vertical={false} />
+                <XAxis
+                  dataKey="mes"
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fontSize: 11 }}
+                />
+                <YAxis
+                  tickFormatter={formatarValorCurto}
+                  tickLine={false}
+                  axisLine={false}
+                  width={56}
+                  tick={{ fontSize: 11 }}
+                />
+                <ChartTooltip
+                  content={
+                    <ChartTooltipContent
+                      formatter={(value, name) => (
+                        <span>
+                          {chartConfig[name as string]?.label ?? name}:{" "}
+                          {formatarValor(Number(value))}
+                        </span>
+                      )}
+                    />
+                  }
+                />
+                <Area
+                  dataKey="resultadoReportado"
+                  type="monotone"
+                  fill="var(--color-resultadoReportado)"
+                  stroke="var(--color-resultadoReportado)"
+                  fillOpacity={0.35}
+                />
+                <Area
+                  dataKey="resultadoRecalculado"
+                  type="monotone"
+                  fill="var(--color-resultadoRecalculado)"
+                  stroke="var(--color-resultadoRecalculado)"
+                  fillOpacity={0.35}
+                />
+              </AreaChart>
+            </ChartContainer>
+            <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="h-2.5 w-2.5 rounded-[2px]"
+                  style={{ backgroundColor: "var(--chart-1)" }}
+                />
+                Reportado
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="h-2.5 w-2.5 rounded-[2px]"
+                  style={{ backgroundColor: "var(--chart-4)" }}
+                />
+                Recalculado
+              </span>
             </div>
-          </details>
+            {empreendimentoSelecionado && (
+              <p className="text-xs text-muted-foreground">
+                {empreendimentoSelecionado.nome}:{" "}
+                {empreendimentoSelecionado.mesesDivergentes} de{" "}
+                {empreendimentoSelecionado.mesesTotal} meses divergentes,{" "}
+                {formatarValor(empreendimentoSelecionado.somaAbsDiferenca)} em
+                diferenças absolutas — onde as duas áreas do gráfico não
+                coincidem, esse é o mês divergente.
+              </p>
+            )}
+          </>
         )}
       </CardContent>
     </Card>

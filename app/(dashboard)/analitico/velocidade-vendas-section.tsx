@@ -1,25 +1,149 @@
-import { cn } from "@/lib/utils";
+"use client";
+
+import { useMemo, useState } from "react";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+
 import type { VelocidadeVendasItem } from "@/lib/features/analitico/repository";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-const formatarPercentual = (fracao: number) =>
-  fracao.toLocaleString("pt-BR", {
-    style: "percent",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-
-const formatarData = (iso: string) => new Date(iso).toLocaleDateString("pt-BR");
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 
 interface VelocidadeVendasSectionProps {
   itens: VelocidadeVendasItem[];
 }
 
-// Lista já vem ordenada pior -> melhor (velocidade ASC) do repository. Os 3
-// primeiros (piores) recebem destaque visual, conforme pedido da sessão.
+interface Filtros {
+  cidade: string;
+  uf: string;
+  tipo: string;
+}
+
+const FILTROS_VAZIOS: Filtros = { cidade: "", uf: "", tipo: "" };
+
+function opcoesUnicas(
+  itens: VelocidadeVendasItem[],
+  campo: "cidade" | "uf" | "tipo",
+) {
+  return Array.from(new Set(itens.map((i) => i[campo]))).sort((a, b) =>
+    a.localeCompare(b, "pt-BR"),
+  );
+}
+
+function GraficoVelocidade({
+  itens,
+  cor,
+  chartId,
+}: {
+  itens: VelocidadeVendasItem[];
+  cor: string;
+  chartId: string;
+}) {
+  const data = itens.map((item) => ({
+    nome: item.nome,
+    velocidadePct: Math.round(item.velocidade * 10000) / 100,
+    vendidas: item.vendidas,
+    totalOfertado: item.totalOfertado,
+  }));
+
+  const config: ChartConfig = {
+    velocidadePct: { label: "Velocidade de vendas", color: cor },
+  };
+
+  if (data.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Nenhum empreendimento no subconjunto filtrado.
+      </p>
+    );
+  }
+
+  return (
+    <ChartContainer
+      id={chartId}
+      config={config}
+      className="aspect-auto h-[9rem] w-full sm:h-40"
+    >
+      <BarChart data={data} layout="vertical" margin={{ left: 0 }}>
+        <CartesianGrid horizontal={false} />
+        <XAxis
+          type="number"
+          dataKey="velocidadePct"
+          tickFormatter={(v: number) => `${v}%`}
+          tickLine={false}
+          axisLine={false}
+        />
+        <YAxis
+          type="category"
+          dataKey="nome"
+          tickLine={false}
+          axisLine={false}
+          width={110}
+          tick={{ fontSize: 11 }}
+        />
+        <ChartTooltip
+          content={
+            <ChartTooltipContent
+              formatter={(value, _name, item) => {
+                const payload = item.payload as {
+                  vendidas: number;
+                  totalOfertado: number;
+                };
+                return (
+                  <span>
+                    {String(value)}% ({payload.vendidas}/{payload.totalOfertado}{" "}
+                    unidades)
+                  </span>
+                );
+              }}
+            />
+          }
+        />
+        <Bar
+          dataKey="velocidadePct"
+          fill={`var(--color-velocidadePct)`}
+          radius={4}
+        />
+      </BarChart>
+    </ChartContainer>
+  );
+}
+
+// Filtros são estado local (useState), sem sincronizar com URL — mudam só o
+// que é exibido (subconjunto de empreendimentos), nunca a fórmula da
+// velocidade (numerador/denominador continuam status_canonico='vendida' /
+// todas as unidades, regra B2, calculados no repository). Nenhum filtro
+// aqui incide sobre status_canonico.
 export function VelocidadeVendasSection({
   itens,
 }: VelocidadeVendasSectionProps) {
+  const [filtros, setFiltros] = useState<Filtros>(FILTROS_VAZIOS);
+
+  const opcoesCidade = useMemo(() => opcoesUnicas(itens, "cidade"), [itens]);
+  const opcoesUf = useMemo(() => opcoesUnicas(itens, "uf"), [itens]);
+  const opcoesTipo = useMemo(() => opcoesUnicas(itens, "tipo"), [itens]);
+
+  const filtrados = useMemo(
+    () =>
+      itens.filter(
+        (item) =>
+          (!filtros.cidade || item.cidade === filtros.cidade) &&
+          (!filtros.uf || item.uf === filtros.uf) &&
+          (!filtros.tipo || item.tipo === filtros.tipo),
+      ),
+    [itens, filtros],
+  );
+
+  // itens já vem ordenado por velocidade ASC (pior primeiro) do repository —
+  // recalculado sobre o subconjunto filtrado a cada mudança de filtro.
+  const piores3 = filtrados.slice(0, 3);
+  const melhores3 = [...filtrados].reverse().slice(0, 3);
+
   return (
     <Card>
       <CardHeader>
@@ -30,91 +154,95 @@ export function VelocidadeVendasSection({
           Numerador = unidades com status normalizado &quot;vendida&quot; (já
           líquido de distrato — uma unidade cancelada volta para
           &quot;distrato&quot;, não &quot;vendida&quot;). Denominador = todas as
-          unidades cadastradas no empreendimento, sem exclusão por status. Os 3
-          piores colocados são, sem exceção, os empreendimentos mais
-          recentemente lançados — a métrica é de estoque, não normalizada pelo
-          tempo desde o lançamento.
+          unidades cadastradas no empreendimento, sem exclusão por status. Os
+          filtros abaixo mudam só o subconjunto exibido — nunca essa fórmula.
         </p>
 
-        {/* Mobile-first: lista empilhada por padrão; tabela a partir de md. */}
-        <ol className="flex flex-col gap-2 md:hidden">
-          {itens.map((item, index) => (
-            <li
-              key={item.empreendimentoId}
-              className={cn(
-                "flex flex-col gap-1 rounded-lg border border-border p-3",
-                index < 3 && "border-destructive/40 bg-destructive/5",
-              )}
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="velocidade-filtro-cidade">Cidade</Label>
+            <Select
+              id="velocidade-filtro-cidade"
+              value={filtros.cidade}
+              onChange={(e) =>
+                setFiltros((f) => ({ ...f, cidade: e.target.value }))
+              }
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium">
-                  {index < 3 ? `${index + 1}º pior · ` : ""}
-                  {item.nome}
-                </span>
-                <span
-                  className={cn(
-                    "text-sm font-semibold",
-                    index < 3 && "text-destructive",
-                  )}
-                >
-                  {formatarPercentual(item.velocidade)}
-                </span>
-              </div>
-              <span className="text-xs text-muted-foreground">
-                {item.vendidas} de {item.totalOfertado} unidades vendidas ·
-                lançamento em {formatarData(item.dataLancamento)}
-              </span>
-            </li>
-          ))}
-        </ol>
-
-        <div className="hidden overflow-x-auto md:block">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-border text-muted-foreground">
-                <th className="py-2 pr-4 font-medium">#</th>
-                <th className="py-2 pr-4 font-medium">Empreendimento</th>
-                <th className="py-2 pr-4 font-medium">Vendidas</th>
-                <th className="py-2 pr-4 font-medium">Total ofertado</th>
-                <th className="py-2 pr-4 font-medium">Velocidade</th>
-                <th className="py-2 pr-0 font-medium">Lançamento</th>
-              </tr>
-            </thead>
-            <tbody>
-              {itens.map((item, index) => (
-                <tr
-                  key={item.empreendimentoId}
-                  className={cn(
-                    "border-b border-border last:border-0",
-                    index < 3 && "bg-destructive/5",
-                  )}
-                >
-                  <td className="py-2 pr-4 font-medium">
-                    {index < 3 ? (
-                      <span className="text-destructive">{index + 1}º</span>
-                    ) : (
-                      index + 1
-                    )}
-                  </td>
-                  <td className="py-2 pr-4">{item.nome}</td>
-                  <td className="py-2 pr-4">{item.vendidas}</td>
-                  <td className="py-2 pr-4">{item.totalOfertado}</td>
-                  <td
-                    className={cn(
-                      "py-2 pr-4 font-semibold",
-                      index < 3 && "text-destructive",
-                    )}
-                  >
-                    {formatarPercentual(item.velocidade)}
-                  </td>
-                  <td className="py-2 pr-0">
-                    {formatarData(item.dataLancamento)}
-                  </td>
-                </tr>
+              <option value="">Todas</option>
+              {opcoesCidade.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
               ))}
-            </tbody>
-          </table>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="velocidade-filtro-uf">UF</Label>
+            <Select
+              id="velocidade-filtro-uf"
+              value={filtros.uf}
+              onChange={(e) =>
+                setFiltros((f) => ({ ...f, uf: e.target.value }))
+              }
+            >
+              <option value="">Todas</option>
+              {opcoesUf.map((uf) => (
+                <option key={uf} value={uf}>
+                  {uf}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="velocidade-filtro-tipo">Tipo</Label>
+            <Select
+              id="velocidade-filtro-tipo"
+              value={filtros.tipo}
+              onChange={(e) =>
+                setFiltros((f) => ({ ...f, tipo: e.target.value }))
+              }
+            >
+              <option value="">Todos</option>
+              {opcoesTipo.map((tipo) => (
+                <option key={tipo} value={tipo}>
+                  {tipo}
+                </option>
+              ))}
+            </Select>
+          </div>
         </div>
+
+        <p className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+          Limitação conhecida da métrica (regra B2 em regras-de-negocio.md):
+          tanto os piores quanto os melhores extremos de velocidade tendem a
+          coincidir com o tempo desde o lançamento do empreendimento — a métrica
+          não é normalizada por tempo em estoque. Isso vale para as duas seções
+          abaixo, não é um artefato de bug.
+        </p>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="flex flex-col gap-2">
+            <h3 className="text-sm font-medium text-destructive">3 piores</h3>
+            <GraficoVelocidade
+              itens={piores3}
+              cor="var(--destructive)"
+              chartId="velocidade-piores"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <h3 className="text-sm font-medium">3 melhores</h3>
+            <GraficoVelocidade
+              itens={melhores3}
+              cor="var(--accent)"
+              chartId="velocidade-melhores"
+            />
+          </div>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          {filtrados.length} de {itens.length} empreendimentos no subconjunto
+          filtrado atual.
+        </p>
       </CardContent>
     </Card>
   );

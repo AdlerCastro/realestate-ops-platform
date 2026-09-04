@@ -20,6 +20,9 @@ import {
 export interface VelocidadeVendasItem {
   empreendimentoId: number;
   nome: string;
+  cidade: string;
+  uf: string;
+  tipo: string;
   vendidas: number;
   totalOfertado: number;
   /** Fração 0-1 (não percentual) — vendidas / totalOfertado. */
@@ -30,6 +33,9 @@ export interface VelocidadeVendasItem {
 interface VelocidadeVendasRow {
   id: number;
   nome: string;
+  cidade: string;
+  uf: string;
+  tipo: string;
   data_lancamento: string;
   vendidas: number;
   total_ofertado: number;
@@ -39,11 +45,16 @@ interface VelocidadeVendasRow {
 // Numerador = status_canonico = 'vendida' (v_unidades_norm). Denominador =
 // todas as unidades do empreendimento, independentemente de status (decisão
 // 7a das instruções do projeto — nenhum status na base sinaliza remoção de
-// oferta/portfólio).
+// oferta/portfólio). cidade/uf/tipo entram só para permitir filtro de
+// apresentação no front (client component, sessão do dashboard analítico
+// filtrado) — nunca incidem sobre o numerador/denominador em si.
 const listarVelocidadeVendasStmt = db.prepare<[], VelocidadeVendasRow>(`
   SELECT
     e.id AS id,
     e.nome AS nome,
+    e.cidade AS cidade,
+    e.uf AS uf,
+    e.tipo AS tipo,
     e.data_lancamento AS data_lancamento,
     SUM(CASE WHEN u.status_canonico = 'vendida' THEN 1 ELSE 0 END) AS vendidas,
     COUNT(*) AS total_ofertado,
@@ -56,8 +67,9 @@ const listarVelocidadeVendasStmt = db.prepare<[], VelocidadeVendasRow>(`
 
 /**
  * Lista COMPLETA (22 empreendimentos), ordenada por velocidade ascendente
- * (pior primeiro) — o recorte de destaque (ex.: "3 piores") é decisão de
- * apresentação do front, não desta função.
+ * (pior primeiro) — o recorte de destaque (ex.: "3 piores"/"3 melhores") e
+ * qualquer filtro por cidade/uf/tipo são decisão de apresentação do front
+ * (client component), não desta função — a fórmula em si nunca muda.
  *
  * Validado contra refs/analise-banco-consolidada.md seção 5a (pior→melhor):
  * Essência Living 13/190 (6,84%), Atelier Tower 35/186 (18,82%),
@@ -67,6 +79,9 @@ export function listarVelocidadeVendas(): VelocidadeVendasItem[] {
   return listarVelocidadeVendasStmt.all().map((row) => ({
     empreendimentoId: row.id,
     nome: row.nome,
+    cidade: row.cidade,
+    uf: row.uf,
+    tipo: row.tipo,
     vendidas: row.vendidas,
     totalOfertado: row.total_ofertado,
     velocidade: row.velocidade,
@@ -89,51 +104,73 @@ export interface RiscoEstouroCustoItem {
   mesesTotal: number;
 }
 
-interface RiscoEstouroCustoRow {
+export interface EstouroCustoMensalItem {
+  empreendimentoId: number;
+  nome: string;
+  cidade: string;
+  uf: string;
+  tipo: string;
+  /** 'YYYY-MM-01' — granularidade mensal de obra_andamento. */
+  mesReferencia: string;
+  custoOrcado: number;
+  custoRealizado: number;
+}
+
+interface EstouroCustoMensalRow {
   id: number;
   nome: string;
-  magnitude_estouro_acumulada: number;
-  desvio_liquido_referencia: number;
-  meses_com_estouro: number;
-  meses_total: number;
+  cidade: string;
+  uf: string;
+  tipo: string;
+  mes_referencia: string;
+  custo_orcado: number;
+  custo_realizado: number;
 }
 
 // Direto contra obra_andamento (sem view — tabela não tem inconsistência de
-// grafia, ver analise-banco-consolidada.md seção 2/4).
-const listarRiscoEstouroCustoStmt = db.prepare<[], RiscoEstouroCustoRow>(`
+// grafia, ver analise-banco-consolidada.md seção 2/4). Granularidade
+// mensal (uma linha por empreendimento×mês) para permitir filtro de período
+// e de cidade/uf/tipo no client component — a agregação (soma bruta/líquida,
+// critério da decisão 7b) acontece no front sobre o subconjunto filtrado,
+// nunca nesta query.
+const listarEstouroCustoMensalStmt = db.prepare<[], EstouroCustoMensalRow>(`
   SELECT
     e.id AS id,
     e.nome AS nome,
-    SUM(CASE WHEN o.custo_realizado_mes > o.custo_orcado_mes
-             THEN o.custo_realizado_mes - o.custo_orcado_mes ELSE 0 END) AS magnitude_estouro_acumulada,
-    SUM(o.custo_realizado_mes - o.custo_orcado_mes) AS desvio_liquido_referencia,
-    SUM(CASE WHEN o.custo_realizado_mes > o.custo_orcado_mes THEN 1 ELSE 0 END) AS meses_com_estouro,
-    COUNT(*) AS meses_total
+    e.cidade AS cidade,
+    e.uf AS uf,
+    e.tipo AS tipo,
+    o.mes_referencia AS mes_referencia,
+    o.custo_orcado_mes AS custo_orcado,
+    o.custo_realizado_mes AS custo_realizado
   FROM obra_andamento o
   JOIN empreendimentos e ON e.id = o.empreendimento_id
-  GROUP BY e.id
-  ORDER BY magnitude_estouro_acumulada DESC
+  ORDER BY e.id, o.mes_referencia
 `);
 
 /**
- * Lista COMPLETA (22 empreendimentos), ordenada por magnitude bruta
- * descendente (decisão 7b — critério bruto, não soma líquida).
+ * Lista COMPLETA, granularidade empreendimento×mês, sem nenhuma agregação —
+ * a agregação (magnitude bruta top-5, decisão 7b) e qualquer filtro de
+ * cidade/uf/tipo/período são decisão do front (client component).
  *
- * Validado contra refs/analise-banco-consolidada.md seção 5b, top 5:
+ * Sem filtro (todo o período, todas as dimensões), a agregação desta lista
+ * deve bater com refs/analise-banco-consolidada.md seção 5b, top 5:
  * Panorama do Parque (R$ 5.870.238,38 / R$ 4.175.081,11, 21/36),
  * Alto Amazônia (R$ 3.857.806,45 / R$ 2.261.394,32, 22/39),
  * Estúdio Amazônia (R$ 3.613.496,47 / R$ 2.379.439,52, 8/14),
  * Cume Tower (R$ 3.106.416,68 / R$ 53.966,04, 3/10),
  * Cais Tower (R$ 3.060.991,11 / R$ 1.376.944,69, 22/43).
  */
-export function listarRiscoEstouroCusto(): RiscoEstouroCustoItem[] {
-  return listarRiscoEstouroCustoStmt.all().map((row) => ({
+export function listarEstouroCustoMensal(): EstouroCustoMensalItem[] {
+  return listarEstouroCustoMensalStmt.all().map((row) => ({
     empreendimentoId: row.id,
     nome: row.nome,
-    magnitudeEstouroAcumulada: row.magnitude_estouro_acumulada,
-    desvioLiquidoReferencia: row.desvio_liquido_referencia,
-    mesesComEstouro: row.meses_com_estouro,
-    mesesTotal: row.meses_total,
+    cidade: row.cidade,
+    uf: row.uf,
+    tipo: row.tipo,
+    mesReferencia: row.mes_referencia,
+    custoOrcado: row.custo_orcado,
+    custoRealizado: row.custo_realizado,
   }));
 }
 
@@ -355,6 +392,51 @@ const listarDivergenciaPorEmpreendimentoStmt = db.prepare<
   GROUP BY e.id
   ORDER BY soma_abs_diferenca DESC
 `);
+
+export interface DivergenciaMensalItem {
+  empreendimentoId: number;
+  /** 'YYYY-MM-01'. */
+  mesReferencia: string;
+  resultadoReportado: number;
+  resultadoRecalculado: number;
+  diferenca: number;
+  divergente: boolean;
+}
+
+interface DivergenciaMensalRow {
+  empreendimento_id: number;
+  mes_referencia: string;
+  resultado_reportado: number;
+  resultado_recalculado: number;
+  diferenca: number;
+  divergente: number;
+}
+
+// Granularidade empreendimento×mês, sem agregação — usada pelo gráfico de
+// área (pergunta 4), que exibe a série temporal de UM empreendimento por vez
+// (seletor local ao gráfico, não filtro global do dashboard).
+const listarDivergenciaMensalStmt = db.prepare<[], DivergenciaMensalRow>(`
+  SELECT
+    empreendimento_id AS empreendimento_id,
+    mes_referencia AS mes_referencia,
+    resultado_reportado AS resultado_reportado,
+    resultado_recalculado AS resultado_recalculado,
+    diferenca AS diferenca,
+    divergente AS divergente
+  FROM v_financeiro_reconciliado
+  ORDER BY empreendimento_id, mes_referencia
+`);
+
+export function listarDivergenciaMensal(): DivergenciaMensalItem[] {
+  return listarDivergenciaMensalStmt.all().map((row) => ({
+    empreendimentoId: row.empreendimento_id,
+    mesReferencia: row.mes_referencia,
+    resultadoReportado: row.resultado_reportado,
+    resultadoRecalculado: row.resultado_recalculado,
+    diferenca: row.diferenca,
+    divergente: row.divergente === 1,
+  }));
+}
 
 /**
  * Validado contra refs/analise-banco-consolidada.md seção 5d: 562 meses
