@@ -3,6 +3,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   registrarVendaSchema,
   formaPagamentoEnum,
@@ -101,8 +102,12 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
   const mutation = useMutation({
     mutationFn: criarVenda,
     onSuccess: () => {
+      toast.success("Venda registrada com sucesso.");
       router.push("/vendas");
       router.refresh();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
     },
   });
 
