@@ -371,6 +371,8 @@ humana explícita — nunca aplicada.
    Ver seção 11 para o detalhamento completo desta sessão, incluindo a troca de modelo e o teste
    manual pendente.
 5. **README final + revisão de limitações** — consolidação, não é sessão de código.
+6. ✅ **Correções na camada de escrita** (busca de cliente, aviso de dedup no cadastro, verificação
+   do fluxo de distrato) — ver seção 13.
 
 ---
 
@@ -765,3 +767,92 @@ escrita", lista de scripts, e a nota de limitação sobre CI), `docs/log-tecnico
 3, este documento) e `.claude/agents/frontend.md` (checklist de validação). `.claude/agents/
 devops.md` não precisou de alteração — a regra "Playwright fora do pipeline de CI" ali é
 independente de ele ser ou não devDependency do projeto.
+
+---
+
+## 13. Sessão 6 — Correções na camada de escrita (04/09/2026)
+
+Escopo: 3 itens em `/vendas` e `/vendas/novo` — busca de cliente existente, aviso de duplicidade no
+cadastro de cliente novo (reversão da regra C6), e verificação do fluxo de distrato. Nenhuma
+mudança de schema/dado fora do fluxo normal da aplicação (regra da seção 0 do `AGENTS.md`).
+
+### Item 1 — busca de cliente: bug não reproduzido
+
+A tarefa pedia diagnóstico do campo "Buscar cliente por nome" em `/vendas/novo` (aba "Cliente
+existente"), reportado como "não filtra a lista". Diagnóstico feito lendo o código
+(`lib/features/vendas/hooks/use-venda-form.ts`, `clientesFiltrados` via `useMemo` +
+`normalizarTexto`) e, principalmente, testando ao vivo no navegador (`pnpm dev` + Chrome
+automation) contra o banco de trabalho real:
+
+- Busca parcial ("Adler Castro" → só os 2 "Adler Castro — Belém"): funcionou.
+- Case/acento-insensível ("natalia" → todas as "Natália ..."): funcionou.
+- Substring no meio do nome ("astro" → "Adler Castro"): funcionou.
+- Termo sem correspondência (`"zzzznaoexiste"`) → lista vazia (nunca volta a lista cheia):
+  funcionou.
+
+**Conclusão: nenhum bug reproduzido.** `git diff main` para os arquivos envolvidos (`dedup.ts`,
+`use-venda-form.ts`, `venda-form.tsx`) estava vazio no início da sessão — o código já filtra
+corretamente desde o commit original da feature (sessão 2). Nenhuma alteração foi feita neste item.
+Hipótese mais provável: o relato do bug antecede este estado do código, ou descreve um sintoma não
+reproduzido nas condições testadas. Se o problema persistir na prática, precisa de um passo a passo
+exato de reprodução (navegador, digitação lenta vs. colar texto, etc.) para investigar de novo —
+não há indício de causa raiz no código atual.
+
+### Item 2 — reversão da regra C6: aviso de duplicidade não-bloqueante
+
+Detalhe completo da regra em `docs/regras-de-negocio.md`, C6 (marcada como revertida com a data de
+hoje, texto original preservado riscado). Resumo técnico da implementação:
+
+- `lib/features/vendas/hooks/use-venda-form.ts`: `handleSubmit` agora, quando `modoCliente ===
+"novo"` e nome+cidade estão preenchidos, calcula `chaveDedup(nome, cidade)`
+  (`lib/features/clientes/dedup.ts`, sem lógica nova) e filtra o array `clientes` (já carregado
+  pelo Server Component, mesmo universo usado pela busca do item 1) por essa chave. Se houver
+  correspondência, guarda em `duplicatasEncontradas` e **não** chama `submeter()` — o cadastro só
+  segue se o usuário confirmar.
+- Dois novos caminhos para o usuário resolver o aviso: `usarClienteExistente(cliente)` (troca
+  `modoCliente` para `"existente"` e pré-seleciona o cliente encontrado) e `cadastrarMesmoAssim()`
+  (chama `submeter()` diretamente, ignorando a checagem — não bloqueia).
+- `duplicatasEncontradas` é limpo automaticamente ao editar nome/cidade/trocar de modo, para não
+  deixar um aviso obsoleto na tela enquanto o usuário digita.
+- Checagem só roda no submit (não live/debounced), conforme pedido — sem round-trip HTTP, sem
+  chamada ao backend; puramente client-side contra os dados já carregados.
+- Nenhuma alteração no schema, na rota `POST /api/vendas` ou na transação de escrita
+  (`registrarVendaTx`, `lib/features/vendas/repository.ts`) — o aviso é só uma camada de UX antes
+  do submit, o backend continua sem checagem de duplicidade (mesma decisão de sempre, ver C6).
+
+**Teste manual com duplicata real da base**: usado o par "Adler Castro — Belém" (dois registros
+pré-existentes na base, ids 2693/2694 — descoberto ao consultar `clientes` diretamente contra o
+banco de trabalho). Preenchendo "Cliente novo" com nome="Adler Castro", cidade="Belém": o aviso
+apareceu listando os 2 clientes existentes, com os botões "Usar este cliente" (por cliente) e
+"Cadastrar mesmo assim" (geral) — confirmado não-bloqueante, os dois caminhos disponíveis e nenhuma
+chamada à API disparada antes da confirmação.
+
+### Item 3 — fluxo de distrato: verificado correto, nenhum bug encontrado
+
+Trace via UI real (não SQL manual): registrada uma venda de teste (unidade "Alto Amazônia — Torre B
+
+- 0801", cliente "Adler Castro", R$500.000,00, À vista) em `/vendas/novo`, depois distratada pelo
+  botão "Distratar" em `/vendas`. Confirmado:
+
+- A venda distratada some da listagem de "vendas ativas" imediatamente após o distrato (a listagem
+  já usa `v_vendas_norm` filtrando `status_canonico = 'ativa'`, conforme o repositório — não é uma
+  tabela separada de ativas/distratadas, que é escopo de sessão futura).
+- A unidade volta a aparecer no seletor de `/vendas/novo` ("Alto Amazônia — Torre B - 0801" reapareceu
+  na lista de unidades disponíveis).
+- Confirmado direto no banco de trabalho: `unidades.status = 'disponivel'` e
+  `vendas.status_venda = 'distrato'` com `data_distrato` preenchida para a venda de teste — bate
+  exatamente com o padrão documentado na seção 5.
+
+**Nenhum bug encontrado — nenhuma correção necessária.** Nota operacional: o teste deixou 1 par
+venda+distrato de dados sintéticos no banco de trabalho (`data/cambara_teste_tecnico.db`), criado
+via o fluxo normal da aplicação (não é alteração manual de dado, não está sujeito à regra da seção
+0). Se for indesejado antes da apresentação de 08/09, o procedimento de reset para a cópia pristina
+já está documentado no README, seção "Operação/Runbook".
+
+### Verificação de qualidade
+
+`tsc --noEmit`, `next lint`, `prettier --check .` e `next build` rodados após as alterações do item
+2 — únicas alterações de código desta sessão (itens 1 e 3 não precisaram de mudança). Sem teste
+automatizado novo persistido para os itens 1/2, conforme escopo definido para esta sessão — só o
+teste E2E de venda/distrato já existente (`tests/e2e/vendas-distratos.spec.ts`) continua cobrindo o
+fluxo completo.
