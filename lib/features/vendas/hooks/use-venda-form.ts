@@ -8,7 +8,11 @@ import {
   formaPagamentoEnum,
   type RegistrarVendaInput,
 } from "@/lib/features/vendas/schema";
-import { normalizarTexto, type Cliente } from "@/lib/features/clientes/dedup";
+import {
+  normalizarTexto,
+  chaveDedup,
+  type Cliente,
+} from "@/lib/features/clientes/dedup";
 import type { UnidadeDisponivel } from "@/lib/features/unidades/repository";
 import type { VendaRow } from "@/lib/features/vendas/repository";
 
@@ -53,6 +57,34 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
   const [clienteNovoUf, setClienteNovoUf] = useState("");
   const [clienteNovoEmail, setClienteNovoEmail] = useState("");
   const [erroValidacao, setErroValidacao] = useState<string | null>(null);
+  // Aviso de duplicidade (regra C6 revertida, docs/regras-de-negocio.md) —
+  // checado só no submit do "Cliente novo", nunca live/debounced, e nunca
+  // bloqueia o cadastro por conta própria.
+  const [duplicatasEncontradas, setDuplicatasEncontradas] = useState<
+    Cliente[] | null
+  >(null);
+
+  function handleClienteNovoNomeChange(value: string) {
+    setClienteNovoNome(value);
+    setDuplicatasEncontradas(null);
+  }
+
+  function handleClienteNovoCidadeChange(value: string) {
+    setClienteNovoCidade(value);
+    setDuplicatasEncontradas(null);
+  }
+
+  function handleModoClienteChange(modo: ModoCliente) {
+    setModoCliente(modo);
+    setDuplicatasEncontradas(null);
+  }
+
+  function usarClienteExistente(cliente: Cliente) {
+    setModoCliente("existente");
+    setBuscaCliente(cliente.nome);
+    setClienteId(String(cliente.id));
+    setDuplicatasEncontradas(null);
+  }
 
   // Universo completo já veio do Server Component (sem round-trip HTTP por
   // termo digitado) — filtro no cliente reaproveita a mesma normalização do
@@ -74,11 +106,7 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
     },
   });
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setErroValidacao(null);
-    mutation.reset();
-
+  function submeter() {
     const payload = {
       unidadeId: unidadeId === "" ? Number.NaN : Number(unidadeId),
       valorVenda: valorVenda === "" ? Number.NaN : Number(valorVenda),
@@ -104,6 +132,37 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
     mutation.mutate(parsed.data);
   }
 
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setErroValidacao(null);
+    mutation.reset();
+
+    if (modoCliente === "novo") {
+      const nome = clienteNovoNome.trim();
+      const cidade = clienteNovoCidade.trim();
+      // Só roda contra nome+cidade preenchidos — sem os dois, a validação
+      // Zod normal do submit já barra o cadastro, e uma chave incompleta
+      // arriscaria falso positivo entre clientes sem cidade.
+      if (nome && cidade) {
+        const chave = chaveDedup(nome, cidade);
+        const encontrados = clientes.filter(
+          (c) => chaveDedup(c.nome, c.cidade ?? "") === chave,
+        );
+        if (encontrados.length > 0) {
+          setDuplicatasEncontradas(encontrados);
+          return;
+        }
+      }
+    }
+
+    submeter();
+  }
+
+  function cadastrarMesmoAssim() {
+    setDuplicatasEncontradas(null);
+    submeter();
+  }
+
   return {
     unidades,
     unidadeId,
@@ -113,21 +172,24 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
     formaPagamento,
     setFormaPagamento,
     modoCliente,
-    setModoCliente,
+    setModoCliente: handleModoClienteChange,
     buscaCliente,
     setBuscaCliente,
     clientesFiltrados,
     clienteId,
     setClienteId,
     clienteNovoNome,
-    setClienteNovoNome,
+    setClienteNovoNome: handleClienteNovoNomeChange,
     clienteNovoCidade,
-    setClienteNovoCidade,
+    setClienteNovoCidade: handleClienteNovoCidadeChange,
     clienteNovoUf,
     setClienteNovoUf,
     clienteNovoEmail,
     setClienteNovoEmail,
     handleSubmit,
+    duplicatasEncontradas,
+    usarClienteExistente,
+    cadastrarMesmoAssim,
     isPending: mutation.isPending,
     erro:
       erroValidacao ??

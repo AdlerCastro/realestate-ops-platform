@@ -209,6 +209,48 @@ export function VendaForm({ unidades, clientes }: VendaFormProps) {
                     }
                   />
                 </div>
+
+                {vm.duplicatasEncontradas ? (
+                  <div
+                    role="alert"
+                    className="flex flex-col gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm"
+                  >
+                    <p>
+                      {vm.duplicatasEncontradas.length === 1
+                        ? "Já existe um cliente cadastrado com esse nome e cidade:"
+                        : "Já existem clientes cadastrados com esse nome e cidade:"}
+                    </p>
+                    <ul className="flex flex-col gap-1">
+                      {vm.duplicatasEncontradas.map((c) => (
+                        <li
+                          key={c.id}
+                          className="flex items-center justify-between gap-2"
+                        >
+                          <span>
+                            {c.nome} — {c.cidade}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => vm.usarClienteExistente(c)}
+                          >
+                            Usar este cliente
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="self-start"
+                      onClick={vm.cadastrarMesmoAssim}
+                    >
+                      Cadastrar mesmo assim
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
