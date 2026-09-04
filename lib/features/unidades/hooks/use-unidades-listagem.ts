@@ -11,10 +11,11 @@ interface UseUnidadesListagemParams {
 }
 
 /**
- * ViewModel da tabela de unidades em /vendas: busca por identificador +
- * filtro por status_canonico, client-side sobre o universo completo (até
- * 3.300 linhas) já carregado pelo Server Component — mesmo padrão sem
- * round-trip HTTP já usado na listagem de vendas.
+ * ViewModel da tabela de unidades em /vendas: busca por identificador OU
+ * nome do empreendimento (mesmo campo de texto, mesmo padrão da busca de
+ * /vendas) + filtro por status_canonico, client-side sobre o universo
+ * completo (até 3.300 linhas) já carregado pelo Server Component — sem
+ * round-trip HTTP.
  */
 export function useUnidadesListagem({ unidades }: UseUnidadesListagemParams) {
   const [busca, setBusca] = useState("");
@@ -25,11 +26,11 @@ export function useUnidadesListagem({ unidades }: UseUnidadesListagemParams) {
   const unidadesFiltradas = useMemo(() => {
     return unidades.filter((u) => {
       if (status && u.status_canonico !== status) return false;
-      if (
-        termoBusca &&
-        !normalizarTexto(u.identificador).includes(termoBusca)
-      ) {
-        return false;
+      if (termoBusca) {
+        const alvo = normalizarTexto(
+          `${u.identificador} ${u.empreendimento_nome}`,
+        );
+        if (!alvo.includes(termoBusca)) return false;
       }
       return true;
     });

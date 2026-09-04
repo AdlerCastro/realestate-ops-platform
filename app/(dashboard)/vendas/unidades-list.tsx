@@ -44,11 +44,13 @@ export function UnidadesList({ unidades }: UnidadesListProps) {
       <CardContent className="flex flex-col gap-3">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-[2fr_1fr]">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor={buscaId}>Buscar unidade por identificador</Label>
+            <Label htmlFor={buscaId}>
+              Buscar por identificador ou empreendimento
+            </Label>
             <Input
               id={buscaId}
               type="text"
-              placeholder="Identificador da unidade"
+              placeholder="Identificador ou nome do empreendimento"
               value={vm.busca}
               onChange={(event) => vm.setBusca(event.target.value)}
             />
