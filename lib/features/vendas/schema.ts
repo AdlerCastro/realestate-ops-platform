@@ -10,11 +10,23 @@ export const formaPagamentoEnum = z.enum([
   "À vista",
 ]);
 
+// Verificado manualmente contra o banco real (data/cambara_teste_tecnico.db):
+// exatamente estes 3 valores distintos em clientes.perfil, sem variação de
+// grafia (mesmo padrão de cautela de forma_pagamento, regra C4). 1 cliente
+// pré-existente tem perfil NULL — não corrigido retroativamente (regra C7,
+// docs/regras-de-negocio.md); a exigência vale só para cadastros novos.
+export const perfilEnum = z.enum(
+  ["Morador", "Investidor", "Institucional"],
+  "Perfil é obrigatório.",
+);
+
 export const clienteNovoSchema = z.object({
   nome: z.string().trim().min(1, "Nome é obrigatório."),
   cidade: z.string().trim().min(1, "Cidade é obrigatória."),
   uf: z.string().trim().max(2).optional(),
-  perfil: z.string().trim().optional(),
+  // Obrigatório mesmo clientes.perfil sendo nullable no schema do banco —
+  // mesmo precedente já aplicado a cidade (regra C5/C7).
+  perfil: perfilEnum,
   email: z.string().trim().email("E-mail inválido.").optional(),
 });
 

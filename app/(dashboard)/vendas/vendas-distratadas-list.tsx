@@ -1,8 +1,4 @@
-"use client";
-
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { useDistrato } from "@/lib/features/vendas/hooks/use-distrato";
 import type { VendaListagemItem } from "@/lib/features/vendas/repository";
 
 const formatarValor = (valor: number) =>
@@ -10,31 +6,31 @@ const formatarValor = (valor: number) =>
 
 const formatarData = (iso: string) => new Date(iso).toLocaleDateString("pt-BR");
 
-interface VendasAtivasListProps {
+interface VendasDistratadasListProps {
   vendas: VendaListagemItem[];
 }
 
-export function VendasAtivasList({ vendas }: VendasAtivasListProps) {
-  const { distratar, vendaIdEmAndamento, isPending, erro, vendaComErro } =
-    useDistrato();
-
+// Sem ação (não é possível reverter distrato nesta aplicação — fora do
+// escopo do enunciado). data-testid usa prefixo "distrato-" (não "venda-")
+// de propósito: o teste E2E persistido (tests/e2e/vendas-distratos.spec.ts)
+// espera `getByTestId("venda-<id>")` com contagem 0 imediatamente após um
+// distrato — reusar o mesmo prefixo aqui faria essa linha (que passa a
+// existir nesta tabela após o distrato) quebrar aquela asserção.
+export function VendasDistratadasList({ vendas }: VendasDistratadasListProps) {
   if (vendas.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        Nenhuma venda ativa encontrada.
+        Nenhuma venda distratada encontrada.
       </p>
     );
   }
 
   return (
-    // Altura fixa + scroll interno (não a página inteira) — mobile-first,
-    // limite menor no viewport base (cards são mais altos que linhas de
-    // tabela) e maior a partir de md.
     <div className="flex flex-col gap-3">
       <div className="max-h-112 overflow-y-auto md:hidden">
         <div className="flex flex-col gap-2">
           {vendas.map((venda) => (
-            <Card key={venda.id} size="sm" data-testid={`venda-${venda.id}`}>
+            <Card key={venda.id} size="sm" data-testid={`distrato-${venda.id}`}>
               <CardContent className="flex flex-col gap-1">
                 <p className="text-sm font-medium">
                   {venda.empreendimento_nome} — {venda.unidade_identificador}
@@ -47,24 +43,10 @@ export function VendasAtivasList({ vendas }: VendasAtivasListProps) {
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Vendida em {formatarData(venda.data_venda)}
+                  {venda.data_distrato
+                    ? ` · Distratada em ${formatarData(venda.data_distrato)}`
+                    : ""}
                 </p>
-                {vendaComErro === venda.id && erro ? (
-                  <p role="alert" className="text-sm text-destructive">
-                    {erro}
-                  </p>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  className="mt-1 self-start"
-                  disabled={isPending && vendaIdEmAndamento === venda.id}
-                  onClick={() => distratar(venda.id)}
-                >
-                  {isPending && vendaIdEmAndamento === venda.id
-                    ? "Distratando..."
-                    : "Distratar"}
-                </Button>
               </CardContent>
             </Card>
           ))}
@@ -79,15 +61,15 @@ export function VendasAtivasList({ vendas }: VendasAtivasListProps) {
               <th className="py-2 pr-4 font-medium">Cliente</th>
               <th className="py-2 pr-4 font-medium">Valor</th>
               <th className="py-2 pr-4 font-medium">Pagamento</th>
-              <th className="py-2 pr-4 font-medium">Data</th>
-              <th className="py-2 pr-0 font-medium">Ação</th>
+              <th className="py-2 pr-4 font-medium">Data da venda</th>
+              <th className="py-2 pr-0 font-medium">Data do distrato</th>
             </tr>
           </thead>
           <tbody>
             {vendas.map((venda) => (
               <tr
                 key={venda.id}
-                data-testid={`venda-${venda.id}`}
+                data-testid={`distrato-${venda.id}`}
                 className="border-b border-border last:border-0"
               >
                 <td className="py-2 pr-4">
@@ -100,22 +82,9 @@ export function VendasAtivasList({ vendas }: VendasAtivasListProps) {
                 <td className="py-2 pr-4">{venda.forma_pagamento}</td>
                 <td className="py-2 pr-4">{formatarData(venda.data_venda)}</td>
                 <td className="py-2 pr-0">
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    disabled={isPending && vendaIdEmAndamento === venda.id}
-                    onClick={() => distratar(venda.id)}
-                  >
-                    {isPending && vendaIdEmAndamento === venda.id
-                      ? "Distratando..."
-                      : "Distratar"}
-                  </Button>
-                  {vendaComErro === venda.id && erro ? (
-                    <p role="alert" className="mt-1 text-sm text-destructive">
-                      {erro}
-                    </p>
-                  ) : null}
+                  {venda.data_distrato
+                    ? formatarData(venda.data_distrato)
+                    : "—"}
                 </td>
               </tr>
             ))}

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 async function distratarVenda(vendaId: number): Promise<void> {
   const response = await fetch("/api/distratos", {
@@ -28,7 +29,13 @@ export function useDistrato() {
   const mutation = useMutation({
     mutationFn: distratarVenda,
     onMutate: (vendaId) => setVendaIdEmAndamento(vendaId),
-    onSuccess: () => router.refresh(),
+    onSuccess: () => {
+      toast.success("Distrato registrado, unidade liberada.");
+      router.refresh();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
     onSettled: () => setVendaIdEmAndamento(null),
   });
 

@@ -81,10 +81,16 @@
   --border: oklch(0.9 0.008 90);
   --input: oklch(0.9 0.008 90);
   --ring: oklch(0.55 0.05 255);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
+  /* Sessão vendas/gráficos: paleta antes era grayscale placeholder (nenhum
+     dashboard usava chart-*). Mapeamento fixo por significado de negócio,
+     reaproveitado nos dois donuts de /vendas: chart-1 = vendida/ativa
+     (grafite-azulado, mesmo hue do primary), chart-2 = distrato (mesmo tom
+     do --destructive, reforça "estado negativo"), chart-3 = disponível
+     (dourado do accent), chart-4 = reservada (cinza-azulado neutro). */
+  --chart-1: oklch(0.45 0.07 255);
+  --chart-2: oklch(0.577 0.215 27.325);
+  --chart-3: oklch(0.75 0.09 85);
+  --chart-4: oklch(0.65 0.02 260);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
   --sidebar: oklch(0.98 0.004 90);
@@ -116,10 +122,10 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.6 0.05 255);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
+  --chart-1: oklch(0.7 0.07 255);
+  --chart-2: oklch(0.7 0.19 22.216);
+  --chart-3: oklch(0.75 0.1 85);
+  --chart-4: oklch(0.55 0.03 260);
   --chart-5: oklch(0.269 0 0);
   --sidebar: oklch(0.22 0.018 255);
   --sidebar-foreground: oklch(0.96 0.005 90);
