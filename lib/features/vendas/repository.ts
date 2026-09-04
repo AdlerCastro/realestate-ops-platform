@@ -75,7 +75,7 @@ const registrarVendaTx = db.transaction(
         c.nome,
         c.cidade,
         c.uf ?? null,
-        c.perfil ?? null,
+        c.perfil,
         c.email ?? null,
         dataCadastro,
       );

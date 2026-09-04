@@ -12,7 +12,7 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import { formaPagamentoEnum } from "@/lib/features/vendas/schema";
+import { formaPagamentoEnum, perfilEnum } from "@/lib/features/vendas/schema";
 import { useVendaForm } from "@/lib/features/vendas/hooks/use-venda-form";
 import type { Cliente } from "@/lib/features/clientes/dedup";
 import type { UnidadeDisponivel } from "@/lib/features/unidades/repository";
@@ -32,6 +32,7 @@ export function VendaForm({ unidades, clientes }: VendaFormProps) {
   const clienteNovoNomeId = useId();
   const clienteNovoCidadeId = useId();
   const clienteNovoUfId = useId();
+  const clienteNovoPerfilId = useId();
   const clienteNovoEmailId = useId();
   const erroId = useId();
 
@@ -200,6 +201,29 @@ export function VendaForm({ unidades, clientes }: VendaFormProps) {
                       vm.setClienteNovoCidade(event.target.value)
                     }
                   />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={clienteNovoPerfilId}>Perfil</Label>
+                  <Select
+                    id={clienteNovoPerfilId}
+                    required
+                    value={vm.clienteNovoPerfil}
+                    onChange={(event) =>
+                      vm.setClienteNovoPerfil(
+                        event.target
+                          .value as (typeof perfilEnum.options)[number],
+                      )
+                    }
+                  >
+                    <option value="" disabled>
+                      Selecione
+                    </option>
+                    {perfilEnum.options.map((opcao) => (
+                      <option key={opcao} value={opcao}>
+                        {opcao}
+                      </option>
+                    ))}
+                  </Select>
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor={clienteNovoUfId}>UF (opcional)</Label>

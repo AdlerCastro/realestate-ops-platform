@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
   registrarVendaSchema,
   formaPagamentoEnum,
+  perfilEnum,
   type RegistrarVendaInput,
 } from "@/lib/features/vendas/schema";
 import {
@@ -24,6 +25,7 @@ interface UseVendaFormParams {
 
 type ModoCliente = "existente" | "novo";
 type FormaPagamento = (typeof formaPagamentoEnum.options)[number];
+type Perfil = (typeof perfilEnum.options)[number];
 
 const LIMITE_RESULTADOS_BUSCA = 20;
 
@@ -57,6 +59,7 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
   const [clienteNovoNome, setClienteNovoNome] = useState("");
   const [clienteNovoCidade, setClienteNovoCidade] = useState("");
   const [clienteNovoUf, setClienteNovoUf] = useState("");
+  const [clienteNovoPerfil, setClienteNovoPerfil] = useState<Perfil | "">("");
   const [clienteNovoEmail, setClienteNovoEmail] = useState("");
   const [erroValidacao, setErroValidacao] = useState<string | null>(null);
   // Aviso de duplicidade (regra C6 revertida, docs/regras-de-negocio.md) —
@@ -138,6 +141,7 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
               nome: clienteNovoNome,
               cidade: clienteNovoCidade,
               uf: clienteNovoUf || undefined,
+              perfil: clienteNovoPerfil || undefined,
               email: clienteNovoEmail || undefined,
             },
           }),
@@ -206,6 +210,8 @@ export function useVendaForm({ unidades, clientes }: UseVendaFormParams) {
     setClienteNovoCidade: handleClienteNovoCidadeChange,
     clienteNovoUf,
     setClienteNovoUf,
+    clienteNovoPerfil,
+    setClienteNovoPerfil,
     clienteNovoEmail,
     setClienteNovoEmail,
     handleSubmit,
