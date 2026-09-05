@@ -295,6 +295,14 @@ WHERE ...` → `INSERT venda`, mesma transação, rollback conjunto se qualquer 
   nesta versão. Mesmo assim, manter a verificação no layout evita um arquivo `proxy.ts` extra,
   alinhado com a recomendação do próprio Next.js de evitar Proxy "a menos que não haja outra
   opção", e mantém runtime único e consistente com as Route Handlers.
+- **Garantia de segurança equivalente a middleware/proxy**: `redirect()` lançado dentro de um
+  Server Component "encerra a renderização do route segment em que foi lançado" (comportamento
+  documentado do Next.js). Como `(dashboard)/layout.tsx` é o topo da árvore protegida e o
+  `layout.tsx` raiz não faz streaming nem busca de dado antes dele, a função da página filha nunca
+  chega a ser invocada quando a sessão é inválida — nenhuma query roda, nenhum byte de conteúdo
+  protegido é serializado antes do redirect. A garantia é equivalente à de um middleware/proxy
+  bloqueando a requisição antes do roteamento; só o ponto do ciclo de requisição em que acontece é
+  diferente (durante o render RSC, não antes do dispatch HTTP).
 
 ---
 
@@ -724,6 +732,22 @@ limitação conhecida no README ("Limitações conhecidas"), com a SQL exata aci
 correção da camada de prompt desta sessão — parando de caçar variação de fraseado aqui; o tempo
 restante vai para a sessão 5 (README final).
 
+### Nota de calibração de confiança — cobertura de teste do assistente de linguagem natural
+
+Os testes manuais cobriram aproximadamente 17 fraseados distintos ao longo de 4 rodadas (5 na 1ª
+rodada, 8 novos na 2ª, 4 novos na 3ª, mais retestes pontuais na 4ª) — não um levantamento
+exaustivo do espaço de fraseado possível para as 4 perguntas de negócio. O padrão observado nas 4
+rodadas foi consistente: cada correção de prompt eliminou exatamente o erro que a expôs, mas a
+rodada seguinte, testando um fraseado novo da mesma pergunta, expôs uma variação diferente do
+mesmo tipo de erro de agregação (rodada 1: `AVG()` direto; rodada 2: subtração indevida no
+numerador e contagem de mês-calendário em vez de linha; rodada 3: filtro indevido no denominador;
+rodada 4: `COUNT()` sem `DISTINCT` disfarçado, depois divisão pela população errada de clientes).
+Isso indica que o espaço de erro de agregação foi reduzido a cada rodada, não esgotado — portanto
+perguntas do avaliador com fraseado fora dos ~17 testados aqui carregam risco real de **erro
+silencioso de definição** (um número plausível, mas matematicamente errado, sem nenhum sinal
+visível de falha na resposta), e não apenas risco de indisponibilidade ou da resposta padrão "não
+consegui responder com confiança nos dados disponíveis".
+
 ### Validação de UI (Playwright ad-hoc, não persistido)
 
 Checklist da seção 2 do `AGENTS.md` rodado via `npx playwright test` contra um spec temporário
@@ -1015,7 +1039,7 @@ Escopo: telas `/vendas` (listagem) e `/vendas/novo` (busca de unidade), conforme
 sessão — dashboard analítico, assistente de LN e autenticação não tocados; lógica de dedup (regra
 C6) e guard de disponibilidade não reabertos. Nenhuma mudança de schema/dado fora do fluxo normal
 da aplicação (regra da seção 0 do `AGENTS.md`). Detalhamento funcional completo no README, seção
-"Camada de escrita" → "Listagem de vendas — gráficos, tabelas separadas, busca e filtros" — este
+"Camada de escrita" → "/vendas — gráficos, tabs, busca/filtros e tabela de unidades" — este
 registro aqui foca no que é `log-tecnico` (achados técnicos, decisões de implementação, histórico).
 
 ### Dependências novas

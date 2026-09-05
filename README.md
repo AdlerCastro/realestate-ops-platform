@@ -12,8 +12,7 @@ e-mail/senha com sessão em cookie assinado — ver seção "Autenticação"), *
 analítica"), **camada de escrita** (fluxo de venda e distrato, o componente mais observado da
 avaliação — ver seção "Camada de escrita") e **assistente de linguagem natural** (pergunta em
 português sobre os dados via duas chamadas à Groq, texto-para-SQL e SQL-para-resposta — ver seção
-"Assistente de linguagem natural"). Esta sessão (5, final) é de revisão e consolidação da
-documentação, sem código novo.
+"Assistente de linguagem natural").
 
 ## Instalação e execução local
 
@@ -74,28 +73,9 @@ mais de uma vez.
   RBAC)**: descritas em "## Limitações conhecidas" abaixo, junto com as demais limitações
   conhecidas do projeto.
 - **Proteção de rota via `getSession()` em `app/(dashboard)/layout.tsx`, não via
-  `middleware.ts`/`proxy.ts`**: nesta versão do Next.js (16.3.4), `middleware.ts` está
-  **deprecated**, renomeado para `proxy.ts` — e o sucessor já roda no runtime Node.js por padrão
-  (não Edge; a opção `runtime` nem existe em arquivos `proxy`, ver
-  `node_modules/next/dist/docs/.../proxy.md`). Ou seja, o motivo clássico para evitar
-  middleware/proxy em outras versões do Next.js — Edge Runtime não suporta `node:crypto`
-  (`createHmac`/`timingSafeEqual`, usados na verificação de assinatura do cookie de sessão) — **não
-  se aplica tecnicamente aqui**: um `proxy.ts` neste projeto já rodaria em Node.js sem configuração
-  extra. Essa decisão não ficou registrada em nenhum lugar do projeto quando foi tomada (sessão de
-  scaffolding da autenticação); a justificativa técnica que se sustenta, verificada nesta auditoria,
-  é: Server Components (layouts/páginas) já rodam em Node.js por padrão sem precisar de
-  `export const runtime`, então checar a sessão em `(dashboard)/layout.tsx` mantém runtime único e
-  consistente com as Route Handlers (que já declaram `nodejs` explicitamente por causa do
-  `better-sqlite3`) sem introduzir um arquivo `proxy.ts` extra — a própria documentação do Next.js
-  recomenda evitar Proxy "a menos que não haja outra opção".
-  - **Garantia de segurança equivalente**: `redirect()` lançado dentro de um Server Component
-    "encerra a renderização do route segment em que foi lançado" (comportamento documentado). Como
-    `(dashboard)/layout.tsx` é o topo da árvore protegida e o `layout.tsx` raiz não faz streaming
-    nem busca de dado antes dele, a função da página filha nunca chega a ser invocada quando a
-    sessão é inválida — nenhuma query roda, nenhum byte de conteúdo protegido é serializado antes
-    do redirect. A garantia é equivalente à de um middleware/proxy bloqueando a requisição antes do
-    roteamento; só o ponto do ciclo de requisição em que acontece é diferente (durante o render RSC,
-    não antes do dispatch HTTP).
+  `middleware.ts`/`proxy.ts`**: decisão técnica fundamentada (Edge Runtime vs. Node.js,
+  `node:crypto`, garantia de segurança equivalente a um proxy) — ver
+  [`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md), seção 6 ("Autenticação").
 
 ## Camada de escrita
 
@@ -103,39 +83,26 @@ Route Handlers (não Server Actions — rota inspecionável via `curl`/Postman) 
 fluxos de escrita da aplicação: `POST /api/vendas` e `POST /api/distratos`
 (`lib/features/vendas/repository.ts`).
 
-- **Garantia de concorrência**: cada escrita roda dentro de `db.transaction()`, mas quem impede a
-  venda dupla (ou o distrato duplicado) é o `UPDATE ... WHERE LOWER(TRIM(status)) IN (...)` —
-  se `changes === 0`, a transação aborta com um erro de negócio explícito ("Unidade não
-  disponível para venda." / "Venda não está ativa."), respondido como HTTP 409, nunca como 500
-  genérico. O padrão é o mesmo definido nas instruções do projeto (venda: `INSERT cliente`
-  condicional → `UPDATE unidade` → `INSERT venda`; distrato: `UPDATE venda` → `UPDATE unidade`),
-  não modificado na implementação.
+- **Garantia de concorrência**: o `UPDATE ... WHERE LOWER(TRIM(status)) IN (...)` (não um
+  `SELECT` prévio) é quem impede venda dupla/distrato duplicado; erro de negócio responde HTTP
+  409, nunca 500. Padrão completo, com o código exato, em
+  [`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md), seção 5.
 - **`valor_venda` é campo livre**: negociado no momento da venda, validado via Zod só como número
   positivo — nunca puxado automaticamente de `unidades.valor_tabela`.
-- **Aviso não-bloqueante de duplicidade no cadastro de cliente novo** (regra C6 revertida em
-  04/09/2026, ver `docs/regras-de-negocio.md`): ao submeter o formulário com "Cliente novo", a
-  mesma `chaveDedup` (nome+cidade normalizados) da deduplicação de leitura
-  (`lib/features/clientes/dedup.ts`) é checada contra a base de clientes já carregada. Se houver
-  correspondência, um aviso inline lista o(s) cliente(s) existentes com um atalho para reaproveitar
-  o cadastro ("usar este cliente") ou seguir mesmo assim ("cadastrar mesmo assim") — nunca bloqueia
-  o cadastro. Sem correspondência, o formulário funciona como antes. O backend
-  (`POST /api/vendas`) continua sem checagem própria — a responsabilidade de dedup continua
-  centralizada no mesmo módulo, só passou a ser consultada também no client antes do submit. A
-  busca de "cliente existente" no formulário reaproveita a mesma normalização
-  (`normalizarTexto`), sem `LIKE` em SQL puro, filtrando no cliente o universo completo já
-  carregado pelo Server Component.
-- **Premissa assumida**: `clientes.cidade` é `NULL`-ável no schema real, mas o formulário de
-  cliente novo exige nome e cidade (só `uf`/`email` são opcionais) — a dedup de leitura depende de
-  nome+cidade normalizados, então permitir cidade vazia criaria clientes que nunca entram em
-  nenhum grupo de dedup por engano do cadastro. Não fechado formalmente no documento de decisões;
-  se essa exigência não for a intenção do avaliador, é um ajuste de uma linha em
-  `lib/features/vendas/schema.ts`.
-- **`perfil` obrigatório no cadastro de cliente novo (sessão 8, regra C7)**: mesmo trade-off da
-  `cidade` acima — `clientes.perfil` é `NULL`-ável no schema real, mas o formulário exige um dos 3
-  valores fechados (`Morador`, `Investidor`, `Institucional`), confirmados contra o banco antes de
-  fixar o enum (`SELECT DISTINCT perfil, COUNT(*) FROM clientes GROUP BY perfil` — 1.550/911/230,
-  sem variação de grafia, mesmo padrão de cautela já usado para `forma_pagamento`). Fluxo de
-  cliente existente não é afetado.
+- **Aviso não-bloqueante de duplicidade no cadastro de cliente novo** (regra C6, revertida em
+  04/09/2026): ao submeter "Cliente novo" com nome+cidade que já existem, um aviso inline oferece
+  "usar este cliente" ou "cadastrar mesmo assim" — nunca bloqueia. Checagem só no client, backend
+  sem alteração. Regra completa (o quê, por quê, antes/depois) em
+  [`docs/regras-de-negocio.md`](docs/regras-de-negocio.md), C6; implementação e teste manual em
+  [`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md), seção 14.
+- **`cidade` obrigatória no cadastro de cliente novo** (regra C5): `clientes.cidade` é `NULL`-ável
+  no schema, mas o formulário exige preenchimento — a dedup (regra B4) depende de nome+cidade, e
+  cidade vazia quebraria a classificação de confiança. Decisão travada, ver
+  [`docs/regras-de-negocio.md`](docs/regras-de-negocio.md), C5.
+- **`perfil` obrigatório no cadastro de cliente novo** (regra C7): mesmo trade-off da `cidade`
+  acima — enum fechado (`Morador`/`Investidor`/`Institucional`), confirmado contra o banco antes de
+  fixar. Ver [`docs/regras-de-negocio.md`](docs/regras-de-negocio.md), C7, e
+  [`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md), seção 16.
 - **Não corrige o histórico legado**: as 122 unidades presas em `distrato` no dado legado (ver
   "Limitações conhecidas") não são reclassificadas por este código — a regra só passa a valer
   corretamente para ações novas feitas pela aplicação a partir de agora.
@@ -143,11 +110,9 @@ fluxos de escrita da aplicação: `POST /api/vendas` e `POST /api/distratos`
   `tests/e2e/vendas-distratos.spec.ts`, por ser o componente mais observado da avaliação. Cobre:
   vender uma unidade disponível com sucesso; tentar vender a mesma unidade de novo e receber erro
   de negócio (409, não sucesso); distratar a venda e confirmar que a unidade volta a `disponivel`.
-  **Atualização (sessão 5)**: Playwright passou a ser devDependency real do projeto
-  (`@playwright/test@1.62.1`, versão pinada — a mesma usada para validar os 3 cenários), a pedido
-  explícito do humano, revertendo a decisão original de mantê-lo como ferramenta de sessão só via
-  `npx` (ver `AGENTS.md` seção 2 para o detalhe da mudança). O resto da aplicação continua validado
-  via Playwright ad-hoc e descartável (não persistido) — só esse teste é commitado.
+  Playwright é devDependency real do projeto (`@playwright/test@1.62.1`, versão pinada) — histórico
+  da decisão em [`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md), seção 12. O resto da
+  aplicação continua validado via Playwright ad-hoc e descartável — só esse teste é commitado.
   ```bash
   pnpm install                             # já instala o Playwright junto (devDependency)
   npx playwright@1.62.1 install chromium   # uma vez, baixa o browser (não vem no pnpm install)
@@ -161,84 +126,32 @@ fluxos de escrita da aplicação: `POST /api/vendas` e `POST /api/distratos`
   negócio (409 — unidade indisponível, venda não ativa) disparam toast de erro reaproveitando a
   mensagem já retornada pelo backend, não uma mensagem genérica nova.
 
-### Listagem de vendas — gráficos, tabelas separadas, busca e filtros (sessão 7)
+### `/vendas` — gráficos, tabs, busca/filtros e tabela de unidades
 
-`/vendas` (`app/(dashboard)/vendas/`) deixou de ser só a listagem mínima de vendas ativas para
-escolher o que distratar (sessão 2) e passou a ser o dashboard completo da tela, mantendo a mesma
-fonte de leitura direta via Server Component (`listarVendasParaListagem`, `v_vendas_norm` sem
-filtro de status) e `contarUnidadesPorStatus` (`v_unidades_norm`, agregado por status canônico).
+`/vendas` (`app/(dashboard)/vendas/`) é o dashboard completo da tela de vendas, lido via Server
+Component (`listarVendasParaListagem`/`v_vendas_norm`, `contarUnidadesPorStatus`,
+`listarUnidadesParaListagem`/`v_unidades_norm`, todas sem filtro de status — o filtro é
+client-side). O que existe hoje na tela:
 
-- **Dois donuts no topo** (`vendas-charts.tsx`, `recharts` + `components/ui/chart.tsx` do
-  shadcn/ui): vendas ativas vs. distratadas, e unidades por status (4 fatias — vendida, disponível,
-  reservada, distrato). Ambos calculados sobre o universo completo carregado no servidor, **não**
-  reagem à busca/filtros da listagem abaixo (representam a proporção geral, não um recorte
-  filtrado). O donut de 4 fatias ficou legível com legenda (63%/28%/5,5%/3,7% do total, sem
-  sobreposição) — não foi necessário desdobrar em dois donuts separados. Cores do tema
-  (`app/globals.css`, tokens `--chart-1`..`--chart-4`) deixaram de ser grayscale placeholder (não
-  havia dashboard nenhum usando essas variáveis antes desta sessão) e passaram a um mapeamento fixo
-  por significado de negócio: `chart-1` = vendida/ativa (grafite-azulado do `--primary`), `chart-2`
-  = distrato (mesmo tom do `--destructive`), `chart-3` = disponível (dourado do `--accent`),
-  `chart-4` = reservada (cinza-azulado neutro).
-- **Duas tabelas separadas** (`vendas-ativas-list.tsx`, `vendas-distratadas-list.tsx`) em vez de
-  uma lista única — "Vendas ativas" (mesmas colunas de antes + ação Distratar) e "Vendas
-  distratadas" (mesmas colunas − ação + coluna "Data do distrato", sem ação, pois a aplicação não
-  suporta reverter distrato). Ambas com altura máxima fixa e scroll interno
-  (`max-h-112`/`max-h-128` conforme breakpoint, mobile-first) em vez de a página inteira rolando, e
-  cabeçalho de tabela `sticky` dentro do container com scroll (desktop). A tabela de distratadas
-  usa `data-testid="distrato-<id>"` (não `"venda-<id>"`), de propósito: o teste E2E persistido
-  espera `getByTestId("venda-<id>")` com contagem 0 imediatamente após um distrato — reusar o
-  mesmo prefixo faria a linha (que passa a existir na tabela de distratadas após o distrato)
-  quebrar essa asserção.
-- **Busca e filtros 100% client-side** (`lib/features/vendas/hooks/use-vendas-listagem.ts`): campo
-  de busca livre por cliente OU unidade (reaproveita `normalizarTexto` de
-  `lib/features/clientes/dedup.ts`, mesma normalização já usada no formulário de venda — sem lógica
-  nova), filtro de forma de pagamento (enum fechado C4), intervalo de data de venda (ambas as
-  tabelas) e intervalo de data de distrato (só a tabela de distratadas), todos combináveis em AND,
-  aplicados sobre o array já carregado pelo Server Component — sem round-trip ao servidor por
-  digitação/filtro (volume da base, 2.206 vendas, não justifica paginação server-side). Em ambas as
-  tabelas, a coluna "Unidade" mostra `{empreendimento} — {identificador}` (nunca o identificador
-  isolado — `unidades.identificador` não é único globalmente, ver seção "Camada de escrita" acima e
-  `docs/log-tecnico-decisoes.md` seção 5).
-- **Busca de unidade em `/vendas/novo`** (`use-venda-form.ts`, campo "Buscar por identificador ou
-  empreendimento" acima do `<select>` de unidade): mesmo padrão de normalização, filtra as opções
-  do select por identificador OU nome do empreendimento, client-side, sem alterar o formato de
-  exibição já existente (`{empreendimento} — {identificador} ({tipo})`).
-- **Achado técnico fora do escopo original — bug de renderização no `recharts@3.8.0`**: a versão
-  instalada automaticamente pelo CLI do shadcn/ui (`pnpm dlx shadcn add chart`) nunca renderizava
-  nenhum setor do `<Pie>` — `computePieSectors` (código-fonte do pacote,
-  `node_modules/recharts/es6/polar/Pie.js`) retorna `undefined` quando a soma dos valores do
-  `dataKey` sai `0`, e isso acontecia de forma reproduzível tanto em `next dev` quanto em `next
-build && next start`, com qualquer composição (com ou sem `ChartContainer`, `Cell`, tooltip,
-  legenda, um ou dois `<PieChart>` na mesma página). Diagnosticado inspecionando o estado Redux
-  interno do recharts direto no navegador (`store.getState().graphicalItems.polarItems` — o item
-  chegava registrado corretamente, com `dataKey`/`data` certos, mas o seletor `selectPieSectors`
-  não produzia setores). Resolvido atualizando para `recharts@3.10.1` (última patch da mesma major
-  na época desta sessão) — não é regressão do código desta aplicação, é bug de uma versão específica
-  do pacote. Fixar a versão em `3.10.1+` (ou testar visualmente após qualquer bump futuro de
-  `recharts`) é recomendado para quem estender esta tela.
+- **Dois donuts** no topo: vendas ativas vs. distratadas, e unidades por status (4 fatias) — sobre
+  o universo completo, sem reagir a busca/filtro.
+- **Duas tabelas de vendas** ("Vendas ativas", com ação Distratar, e "Vendas distratadas")
+  organizadas em `Tabs` (shadcn/ui), altura fixa com scroll interno, mobile-first.
+- **Busca e filtros 100% client-side**, combináveis em AND, sem round-trip ao servidor: cliente OU
+  unidade, forma de pagamento (enum C4), intervalo de data de venda (ambas as tabelas) e de
+  distrato (só distratadas). Mesmo padrão de busca em `/vendas/novo` (unidade por identificador ou
+  empreendimento).
+- **Tabela de unidades** (somente leitura, abaixo das tabs): as 3.300 unidades, filtro por
+  `status_canonico` + busca por identificador, client-side.
+- Coluna "Unidade" sempre `{empreendimento} — {identificador}` (nunca isolado —
+  `unidades.identificador` não é único globalmente, ver `docs/log-tecnico-decisoes.md` seção 5).
+- **Campo "Perfil" obrigatório** no cadastro de "Cliente novo" — enum fechado
+  (`Morador`/`Investidor`/`Institucional`, regra C7 de `docs/regras-de-negocio.md`), confirmado
+  contra o banco antes de fixar. Fluxo "Cliente existente" não é afetado.
 
-### Vendas: campo perfil, tabs e tabela de unidades (sessão 8)
-
-- **Campo "Perfil" obrigatório** no cadastro de "Cliente novo" (`/vendas/novo`) — enum fechado
-  (`Morador`/`Investidor`/`Institucional`) validado via Zod (`lib/features/vendas/schema.ts`),
-  confirmado contra o banco real antes de fixar (ver "Decisões de modelagem" acima e
-  `docs/regras-de-negocio.md`, regra C7). Fluxo "Cliente existente" não é afetado.
-- **Duas tabelas de vendas viraram um componente de tabs** (shadcn/ui `Tabs`, primitiva
-  `@base-ui/react/tabs`, `components/ui/tabs.tsx`) — "Vendas ativas" como aba padrão, "Vendas
-  distratadas" como segunda aba, mesma altura fixa/scroll interno/sticky header de antes, só o
-  container visual mudou (busca e filtros continuam idênticos, aplicados às duas abas). Os dois
-  donuts no topo **não foram alterados** — continuam globais, não reagem à aba selecionada.
-- **Nova tabela de unidades** (`unidades-list.tsx`, somente leitura) abaixo das tabs: as 3.300
-  unidades cadastradas, filtro por `status_canonico` (4 categorias) e busca por identificador,
-  client-side (mesmo padrão sem paginação server-side das outras tabelas desta tela). Sempre
-  exibe `{empreendimento} — {identificador}`, nunca o identificador isolado (mesmo motivo já
-  documentado para a tabela de vendas — `unidades.identificador` não é único globalmente). Sem
-  ação de venda/distrato aqui.
-- **Achado não relacionado a esta sessão, pré-existente, não corrigido**: os dois donuts
-  renderizam legenda e texto de rodapé, mas nenhum setor visível de `<Pie>` no navegador usado
-  para validar esta sessão — confirmado pré-existente (reproduz igual revertendo todo o diff desta
-  sessão via `git stash`, no HEAD do commit anterior), não uma regressão introduzida aqui. Ver
-  `docs/log-tecnico-decisoes.md` seção 15 para o diagnóstico completo.
+Detalhamento técnico completo desta tela — dependências novas, o bug de renderização do
+`recharts@3.8.0` e sua correção, a decisão do `data-testid` por tabela, a paleta de cores dos
+gráficos — em [`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md), seções 15 e 16.
 
 ## Camada analítica
 
@@ -283,82 +196,34 @@ nota completa na regra B4 de `docs/regras-de-negocio.md`.
 
 ## Assistente de linguagem natural
 
-Página em `/assistente` (`app/(dashboard)/assistente/`) — pergunta em português sobre os dados,
-somente leitura, duas chamadas à API da Groq por pergunta:
+Página em `/assistente` (`app/(dashboard)/assistente/`) — pergunta em português sobre os dados
+(texto-para-SQL, não RAG), somente leitura, duas chamadas à API da Groq por pergunta:
 
-1. **Call 1** (`openai/gpt-oss-120b`) — pergunta → SQL, saída forçada em JSON
-   (`response_format: {type: "json_object"}`). O prompt de sistema
-   (`lib/features/assistente/prompts.ts`) expõe `v_unidades_norm`, `v_vendas_norm` e
-   `v_financeiro_reconciliado` (views normalizadas) **e também** as tabelas cruas
-   `empreendimentos`, `obra_andamento` e `clientes` — as views só cobrem
-   unidades/vendas/financeiro, então perguntas sobre nome/cidade de empreendimento ou estouro de
-   custo não têm resposta possível vendo só as 3 views. `unidades`, `vendas` e `financeiro_mensal`
-   (tabelas brutas, com grafia suja) ficam de fora do schema exposto — só as views correspondentes.
-2. **Execução** contra `lib/db/connection-readonly.ts` — conexão SQLite **separada** da escrita,
-   aberta com `{ readonly: true }`. Guardrail extra antes de executar: a consulta precisa começar
-   com `SELECT` e não pode conter mais de um comando (`;`) — defesa em profundidade, a proteção
-   real é o modo readonly do driver. Se a execução falhar (erro de sintaxe, coluna inexistente), o
-   erro é reenviado ao LLM pedindo correção, **1 retry apenas**; se falhar de novo, a resposta ao
-   usuário é "não consegui responder com confiança nos dados disponíveis" — nunca uma resposta
-   incerta forçada.
+1. **Call 1** (`openai/gpt-oss-120b`) — pergunta → SQL, saída forçada em JSON. Schema exposto: as 3
+   views normalizadas + `empreendimentos`/`obra_andamento`/`clientes` (tabelas cruas, para cobrir o
+   que as views não alcançam — nome/cidade de empreendimento, estouro de custo). Justificativa
+   completa e a nota de que `clientes` entra sem a lógica de dedup em
+   [`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md), seção 11.
+2. **Execução** — conexão SQLite separada, somente leitura (`lib/db/connection-readonly.ts`).
+   Guardrails (SQL precisa ser um único `SELECT`, 1 retry se falhar, fallback "não consegui
+   responder com confiança nos dados disponíveis") detalhados na mesma seção 11.
 3. **Call 2** (`openai/gpt-oss-20b`) — linhas retornadas + pergunta original → resposta em
-   português, parafraseando só o que veio da query.
+   português.
 
-A UI sempre mostra os três juntos: resposta em português, a SQL efetivamente executada (ou a que
-falhou, se caiu no caso "não consegui responder"), e a tabela de linhas retornadas.
+A UI sempre mostra os três juntos: resposta em português, a SQL executada (ou a que falhou), e a
+tabela de linhas retornadas.
 
-**Sem view de deduplicação de cliente**: `clientes` entra no schema do prompt sem tratamento — o
-prompt de sistema instrui explicitamente que este assistente não tem acesso à lógica de dedup
-(`chaveDedup`/`classificarGruposDedup`, TypeScript, ver seção acima). Perguntas sobre
-clientes únicos/duplicados geram SQL de contagem bruta, e a resposta em português é instruída a
-avisar que esse número não reflete a deduplicação aplicada no dashboard analítico (`/analitico`).
+**Troca de modelo em relação ao planejado originalmente**: os modelos definidos antes desta sessão
+foram desativados pela Groq (16/08/2026) e substituídos pelos acima — data exata e nomes antigos em
+[`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md), seção 11.
 
-**Troca de modelo em relação ao planejado originalmente**: os nomes registrados nas instruções do
-projeto (`llama-3.3-70b-versatile` para a Call 1, `llama-3.1-8b-instant` para a Call 2) foram
-desativados pela Groq em 16/08/2026 (confirmado contra `console.groq.com/docs/deprecations` nesta
-sessão, 03/09/2026 — já depois do shutdown). Substituídos pelos sucessores recomendados pela
-própria Groq: `openai/gpt-oss-120b` (Call 1) e `openai/gpt-oss-20b` (Call 2), ambos com contexto de
-131.072 tokens e compatíveis com `response_format: {type: "json_object"}`.
-
-**Teste manual das 4 perguntas de negócio — concluído em 4 rodadas, 2 divergências abertas**:
-testado com chave Groq real (detalhamento completo, incluindo SQL gerada e números exatos, em
-`docs/log-tecnico-decisoes.md` §11). Resumo:
-
-- **1ª rodada** (fraseado livre): velocidade de vendas e estouro de custo bateram exatamente;
-  duplicidade de cliente e divergência financeira bateram na contagem, mas erraram no valor
-  agregado — corrigido via 2 instruções genéricas no prompt de sistema (`SYSTEM_PROMPT_SQL`):
-  "média por X" sempre `SUM(valor)/COUNT(DISTINCT id_do_X)`, nunca `AVG()`; somas de
-  desvio/divergência sempre `SUM(ABS(coluna))`, nunca `SUM(coluna)` puro.
-- **2ª rodada** (as 4 perguntas literais do enunciado + variações de fraseado): confirmou as duas
-  correções acima generalizando bem — mas expôs 2 divergências novas só com o fraseado literal: (1)
-  "unidades vendidas **líquidas de distrato**" fazia o modelo subtrair a contagem de distrato da de
-  vendida, quando `status_canonico = 'vendida'` já é líquido por construção da view; (2) "em quantos
-  **meses**/empreendimentos isso ocorre" contava meses-calendário distintos (29) em vez de linhas
-  divergentes empreendimento×mês (63). Corrigidas via 2 novas instruções genéricas: valores de
-  `status_canonico` são mutuamente exclusivos (então "líquido de X" sobre um status-alvo já exclui
-  X, sem subtração); "mês" em perguntas sobre `v_financeiro_reconciliado` significa uma linha da
-  tabela, não mês-calendário distinto.
-- **3ª rodada** (reteste + 2 variações novas de Q1 e Q4, fraseado diferente das rodadas anteriores):
-  confirmou as duas correções da 2ª rodada generalizando corretamente (inclusive a pergunta 1
-  literal, sem subtração no numerador) — mas expôs uma divergência nova, não corrigida (ver
-  "Limitações conhecidas"): fraseados como "descontando os distratos" ou "excluindo as unidades
-  distratadas" aplicados à velocidade de vendas fazem o modelo filtrar as unidades em `distrato` do
-  **denominador** (total ofertado), violando a regra B1 (total ofertado = todas as unidades, sem
-  exclusão por status). Mecanismo diferente do bug corrigido na 2ª rodada (aquele era subtração no
-  numerador; este é filtro no denominador) — reproduzido de forma idêntica em 2 fraseados
-  independentes.
-- **4ª rodada** (revisão humana identificou que o "ticket médio bruto" da pergunta 3 usava
-  `COUNT(cliente_id)` sem `DISTINCT` sobre as vendas — matematicamente idêntico a `AVG()`, o mesmo
-  bug da 1ª rodada escapando da instrução por não usar o literal `AVG()`): a regra do prompt foi
-  reescrita para proibir o padrão semântico ("nunca dividir pelo número de linhas/transações, seja
-  via `AVG()`, `COUNT(coluna)` sem `DISTINCT`, ou `COUNT(*)`"), não só a sintaxe. Reteste confirmou
-  que esse padrão específico não voltou a aparecer, mas expôs uma variação nova do mesmo tipo de
-  erro (ver "Limitações conhecidas"): o denominador passou a usar `COUNT(*)`/`COUNT(DISTINCT ...)`
-  sobre a tabela `clientes` inteira (todos os 2.691 cadastrados), não sobre os clientes que
-  efetivamente compraram — produzindo ticket médio ~R$1,8M em vez do correto ~R$3,15M. Não é o
-  mesmo mecanismo do bug original (que era ausência de `DISTINCT`), é dividir pela população
-  errada. Não corrigido nesta sessão — última rodada de validação de prompt planejada para a sessão
-  4; tempo restante dedicado à sessão 5.
+**Teste manual das 4 perguntas de negócio — concluído em 4 rodadas**: testado com chave Groq real
+contra as 4 perguntas literais do enunciado mais variações de fraseado. Cada rodada corrigiu, via
+instrução genérica no prompt de sistema (`SYSTEM_PROMPT_SQL`), o erro de agregação exposto pela
+rodada anterior (`AVG()` em vez de média por cliente, subtração indevida em "líquido de X",
+contagem de mês-calendário em vez de linha) — mas 2 divergências seguem abertas, sem correção (ver
+"Limitações conhecidas" abaixo). Detalhamento completo — SQL gerada, números exatos, rodada a
+rodada — em [`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md), seção 11.
 
 ## Operação/Runbook
 
@@ -418,37 +283,20 @@ governança de dado legado que não cabem neste resumo. Para o histórico técni
 decisões de implementação e correções, ver
 [`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md).
 
-- **`v_unidades_norm`** — reduz as grafias inconsistentes de `unidades.status` (ex.:
-  `disponivel`/`disponível`) a um `status_canonico` fechado (`vendida`, `disponivel`,
-  `reservada`, `distrato`, `nao_mapeado`), unindo `Cancelado` em `distrato` — não existem duas
-  categorias de "unidade que saiu da venda" no domínio de negócio.
-- **`v_vendas_norm`** — mesma normalização de grafia para `vendas.status_venda`, reduzindo a
-  `ativa` / `distrato` / `nao_mapeado`.
-- **`v_financeiro_reconciliado`** — recalcula `resultado_recalculado` a partir de
-  `receita_reconhecida - custo_incorrido - despesas_corporativas_rat` e expõe `diferenca` +
-  flag `divergente` (>R$0,01 de diferença) contra o `resultado_reportado` original, sem alterar
-  os valores da tabela-fonte.
-- **Dedup de cliente não é uma view SQL** — tentativa anterior estourou o parser do SQLite em CTE
-  encadeada. Implementado como função TypeScript (`lib/features/clientes/dedup.ts`), cálculo em
-  tempo de leitura, sem materialização em tabela/cache. Critério de agrupamento: nome + cidade
-  normalizados (minúsculo, sem acento, espaços colapsados). Um grupo com mais de um cliente é
-  classificado como **alta confiança** se pelo menos um membro tem e-mail no padrão
-  `contatoN@exemplo.com` (sinal de que o dado é sintético/gerado, não uma coincidência real de
-  nome+cidade); caso contrário, **baixa confiança** — nunca fundido automaticamente, sempre
-  exposto como "requer verificação manual" na interface (sessão futura).
-- **"Total ofertado"** = todas as unidades cadastradas em `unidades`, sem exclusão por status
-  (inclui vendidas, disponíveis, reservadas e em distrato) — é o universo de estoque, não o
-  estoque disponível.
-- **"Magnitude de estouro de custo"** = soma apenas dos meses com `diferenca` positiva (estouro),
-  não a soma líquida de todos os meses. Uma soma líquida mascara estouro real quando meses de
-  estouro e de folga se cancelam no mesmo empreendimento — caso do **Cume Tower**, onde a
-  divergência bruta relevante em meses individuais fica escondida se somada com meses de sinal
-  oposto no mesmo período.
-- **Fonte de verdade em divergência status × data**: `vendas.status_venda` (texto) vence sobre
-  `data_distrato` quando os dois discordam (ex.: status `ativa` com `data_distrato` preenchida, ou
-  status `distrato`/`distratada` sem `data_distrato`). Motivo: 46 vendas nessa condição — texto
-  como campo de decisão original da operação comercial, data como campo auxiliar mais sujeito a
-  erro de preenchimento (ver "Limitações conhecidas").
+- **`v_unidades_norm`** — normaliza `unidades.status` (11 grafias) em `status_canonico`
+  (`vendida`/`disponivel`/`reservada`/`distrato`), unindo `Cancelado` em `distrato`.
+- **`v_vendas_norm`** — normaliza `vendas.status_venda` (6 grafias) em `status_canonico`
+  (`ativa`/`distrato`).
+- **`v_financeiro_reconciliado`** — expõe `resultado_recalculado`, `diferenca` e a flag
+  `divergente` frente ao `resultado_reportado` original.
+- **Dedup de cliente** — função TypeScript (`lib/features/clientes/dedup.ts`, não view SQL),
+  agrupamento por nome+cidade normalizados, alta/baixa confiança conforme sinal de e-mail
+  sintético.
+- **"Total ofertado"** = todas as unidades cadastradas, sem exclusão por status.
+- **"Magnitude de estouro de custo"** = soma só dos meses com estouro positivo (critério bruto),
+  não a soma líquida.
+- **Fonte de verdade status × data** — `vendas.status_venda` (texto) vence sobre `data_distrato`
+  quando os dois discordam.
 
 ## Limitações conhecidas
 
@@ -469,20 +317,10 @@ decisões de implementação e correções, ver
   coluna "Data" das tabelas de vendas já usa `toLocaleDateString('pt-BR')` (dd/mm/yyyy)
   corretamente, sem relação com esse widget.
 
-**Nota de calibração de confiança — cobertura de teste do assistente de linguagem natural**: os
-testes manuais cobriram aproximadamente 17 fraseados distintos ao longo de 4 rodadas (5 na 1ª
-rodada, 8 novos na 2ª, 4 novos na 3ª, mais retestes pontuais na 4ª) — não um levantamento
-exaustivo do espaço de fraseado possível para as 4 perguntas de negócio. O padrão observado nas 4
-rodadas foi consistente: cada correção de prompt eliminou exatamente o erro que a expôs, mas a
-rodada seguinte, testando um fraseado novo da mesma pergunta, expôs uma variação diferente do
-mesmo tipo de erro de agregação (rodada 1: `AVG()` direto; rodada 2: subtração indevida no
-numerador e contagem de mês-calendário em vez de linha; rodada 3: filtro indevido no denominador;
-rodada 4: `COUNT()` sem `DISTINCT` disfarçado, depois divisão pela população errada de clientes).
-Isso indica que o espaço de erro de agregação foi reduzido a cada rodada, não esgotado — portanto
-perguntas do avaliador com fraseado fora dos ~17 testados aqui carregam risco real de **erro
-silencioso de definição** (um número plausível, mas matematicamente errado, sem nenhum sinal
-visível de falha na resposta), e não apenas risco de indisponibilidade ou da resposta padrão "não
-consegui responder com confiança nos dados disponíveis".
+**Nota de calibração de confiança**: a cobertura de teste do assistente (~17 fraseados em 4
+rodadas) não é exaustiva — fraseado fora do testado carrega risco real de erro silencioso de
+definição, não só indisponibilidade. Detalhe completo em
+[`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md), seção 11.
 
 - **Filtro por `modelo_negocio` não implementado no dashboard analítico** — ao contrário de
   `cidade`/`uf`/`tipo` (limpos), `empreendimentos.modelo_negocio` tem 9 grafias brutas para ~3
@@ -531,36 +369,16 @@ consegui responder com confiança nos dados disponíveis".
   não há distinção de permissão por `papel` ainda. Isso é deliberado e está fora de escopo desta
   sessão (ver `AGENTS.md`).
 - **Assistente: "descontando"/"excluindo" distratos filtra o denominador da velocidade de vendas
-  (Bug 6, não corrigido)** — perguntar "Descontando os distratos, quais os 3 empreendimentos com
-  pior velocidade de vendas?" ou "Excluindo as unidades distratadas, qual a velocidade de vendas de
-  cada empreendimento?" faz o LLM gerar
-  `SUM(vendida) / SUM(CASE WHEN status_canonico != 'distrato' THEN 1 ELSE 0 END)` — filtrando as
-  unidades em `distrato` do total considerado (denominador), em vez de usar todas as unidades como
-  a regra B1 (`docs/regras-de-negocio.md`) exige ("total ofertado" = todas as unidades cadastradas,
-  sem exclusão por status). Produz velocidade maior que a correta (ex.: Essência Living 7,03% em
-  vez de 6,84%). Reproduzido de forma idêntica nos dois fraseados testados — não é acaso isolado.
-  Mecanismo diferente de um bug já corrigido nesta sessão (aquele subtraía no numerador quando a
-  pergunta usava "líquido de X"; este filtra o denominador quando a pergunta usa
-  "descontando"/"excluindo"). Detalhe completo, incluindo a SQL gerada e a validação contra o
-  banco, em `docs/log-tecnico-decisoes.md` §11. Decisão de correção pendente — não ajustado
-  silenciosamente, para não consumir mais tempo de correção sem teste automatizado por trás antes
-  do prazo de 04/09.
+  (Bug 6, não corrigido)** — fraseados como "descontando os distratos" ou "excluindo as unidades
+  distratadas" fazem o LLM remover as unidades em `distrato` do denominador, violando a regra B1
+  (total ofertado = todas as unidades). SQL gerada e validação contra o banco em
+  [`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md), seção 11.
 - **Assistente: "ticket médio" pode dividir pelo total de clientes cadastrados, não pelos que
-  compraram (não corrigido)** — na pergunta 3 literal do enunciado, a rodada final gerou
-  `SUM(valor_venda) / COUNT(*) FROM clientes` (2.691, todos os cadastrados) em vez de
-  `SUM(valor_venda) / COUNT(DISTINCT cliente_id)` sobre as vendas (1.535, só quem comprou) —
-  produzindo ticket médio ≈R$1,80M em vez do correto ≈R$3,15M. **Nota sobre o 1.535 vs. o 1.440 da
-  seção "Camada analítica"**: não é inconsistência, são dois universos diferentes por dois
-  critérios independentes — confirmado contra o banco nesta sessão. 1.535 é
-  `COUNT(DISTINCT cliente_id)` bruto sobre **todas** as linhas de `v_vendas_norm` (`ativa` **e**
-  `distrato`), sem nenhuma fusão de duplicata; 1.440 filtra só `status_canonico = 'ativa'` **e**
-  aplica a fusão de dedup de alta confiança do dashboard (89 grupos). Isso veio depois de uma correção
-  nesta mesma sessão que eliminou uma forma anterior do mesmo tipo de erro (dividir por
-  `COUNT(coluna)` sem `DISTINCT` sobre a tabela de vendas, matematicamente igual a `AVG()`) — a
-  correção funcionou para esse padrão específico, mas o modelo encontrou uma variação nova:
-  `COUNT(*)`/`COUNT(DISTINCT ...)` sobre a população errada (todos os clientes cadastrados, não os
-  compradores). SQL exata e validação contra o banco em `docs/log-tecnico-decisoes.md` §11. Não
-  corrigido — esta foi a última rodada de ajuste de prompt planejada para a sessão 4.
+  compraram (não corrigido)** — a pergunta 3 literal, na rodada final, gerou
+  `SUM(valor_venda) / COUNT(*) FROM clientes` (todos os cadastrados) em vez de dividir pelos
+  clientes que efetivamente compraram, produzindo ticket médio ≈R$1,80M em vez do correto
+  ≈R$3,15M. Detalhe completo (incluindo por que isso não é a mesma coisa que o 1.440 da seção
+  "Camada analítica") em [`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md), seção 11.
 - **Assistente: aviso de dedup depende do julgamento do LLM, não de checagem no código** — o
   prompt de sistema da Call 2 instrui a avisar quando a pergunta é sobre clientes
   únicos/duplicados, mas nada no código força esse aviso (não há detecção de palavra-chave do lado
