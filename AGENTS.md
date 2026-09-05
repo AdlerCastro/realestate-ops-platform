@@ -13,10 +13,11 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 # realestate-ops-platform — AGENTS.md
 
 Regras de desenvolvimento assistido por Claude Code para este projeto. Este arquivo é lido no
-início de toda sessão. As decisões de produto/arquitetura vivem em
-`realestate-ops-platform-instrucoes.md` (ou equivalente na raiz do projeto) — este arquivo aqui
-é sobre **como trabalhar**, não sobre **o que foi decidido**. Em caso de dúvida sobre uma decisão
-de negócio, consulte aquele arquivo antes de assumir.
+início de toda sessão. As decisões de negócio vivem em `docs/regras-de-negocio.md`, e as decisões
+técnicas de arquitetura e implementação em `docs/log-tecnico-decisoes.md` — este arquivo aqui é
+sobre **como trabalhar**, não sobre **o que foi decidido**. Em caso de dúvida sobre uma decisão de
+negócio, consulte `docs/regras-de-negocio.md`; sobre uma decisão técnica já fechada, consulte
+`docs/log-tecnico-decisoes.md` — antes de assumir.
 
 ## 0. Regra que precede todas as outras
 
@@ -103,7 +104,8 @@ Mobile first é uma decisão real de uso, não só convenção técnica. Consequ
 Antes de qualquer sessão que envolva lógica de negócio (normalização de status, cálculo de
 métrica, regra de venda/distrato), o agente deve:
 
-1. Checar o documento de decisões/instruções do projeto para a regra relevante.
+1. Checar docs/regras-de-negocio.md para a regra de negócio relevante (ou docs/log-tecnico-
+   decisoes.md se a dúvida for sobre uma decisão técnica/arquitetura já fechada).
 2. Se a regra não estiver fechada (ex.: itens da seção "pendente de verificação contra o banco
    real"), **não assumir uma interpretação razoável e seguir em frente** — sinalizar a
    ambiguidade e perguntar, ou implementar a versão mais conservadora e marcar explicitamente
@@ -146,9 +148,10 @@ sujeita à regra da seção 0).
 
 A cada sessão do Claude Code que implemente uma feature (não sessões de discussão), atualizar:
 
-1. O documento de decisões do projeto — nova entrada descrevendo o que foi implementado, quais
-   premissas foram assumidas (especialmente para itens que estavam "pendentes de verificação
-   contra o banco real"), e quaisquer desvios do plano original com justificativa.
+1. docs/log-tecnico-decisoes.md — nova entrada descrevendo o que foi implementado, quais premissas
+   foram assumidas (especialmente para itens que estavam "pendentes de verificação contra o banco
+   real"), e quaisquer desvios do plano original com justificativa. Se a sessão fechou ou reverteu
+   uma regra de negócio, atualizar também docs/regras-de-negocio.md com a regra correspondente.
 2. O README — seção de decisões de modelagem/tratamento de dado, se a sessão tocou nisso; seção
    de limitações conhecidas, se alguma limitação nova foi introduzida.
 

@@ -5,7 +5,7 @@
 // existia dentro do binário .db commitado e como texto solto na
 // documentação, sem forma versionada de reaplicar. SQL idêntico ao aplicado
 // na sessão de normalização (conferido contra sqlite_master.sql do arquivo
-// de trabalho atual — realestate-ops-platform-instrucoes.md seção 4 só tem a
+// de trabalho atual — docs/log-tecnico-decisoes.md seção 4 só tem a
 // descrição em prosa, não o texto literal). Idempotente: pula views que já
 // existem, não recria nem dá erro.
 try {

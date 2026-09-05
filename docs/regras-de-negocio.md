@@ -4,13 +4,13 @@ Este documento consolida as regras de negócio definidas para o projeto **reales
 (Cambará Empreendimentos). Cada regra inclui o que foi decidido, por que, e como foi analisada
 contra o banco real — não são suposições, são decisões fundamentadas em evidência.
 
-Fontes primárias desta consolidação: `realestate-ops-platform-instrucoes.md` (estado operacional
+Fontes primárias desta consolidação: `docs/log-tecnico-decisoes.md` (estado operacional
 do projeto) e `refs/analise-banco-consolidada.md` (evidência bruta da análise do banco). Este
 documento resume; para o SQL exato e as contagens linha a linha, consulte as fontes primárias.
 
 Não estão aqui: decisões de stack técnica (Next.js, pnpm, Playwright), infraestrutura de CI, ou
 mecanismo de autenticação (hash de senha, cookie) — essas são decisões de arquitetura, não de
-regra de negócio, e vivem no `AGENTS.md` e no `instrucoes.md`.
+regra de negócio, e vivem no `AGENTS.md` e em `docs/log-tecnico-decisoes.md`.
 
 ---
 
