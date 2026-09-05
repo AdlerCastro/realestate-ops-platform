@@ -368,17 +368,21 @@ definição, não só indisponibilidade. Detalhe completo em
 - **Sem RBAC nesta fase**: qualquer usuário autenticado acessa as rotas em `app/(dashboard)/` —
   não há distinção de permissão por `papel` ainda. Isso é deliberado e está fora de escopo desta
   sessão (ver `AGENTS.md`).
-- **Assistente: "descontando"/"excluindo" distratos filtra o denominador da velocidade de vendas
-  (Bug 6, não corrigido)** — fraseados como "descontando os distratos" ou "excluindo as unidades
-  distratadas" fazem o LLM remover as unidades em `distrato` do denominador, violando a regra B1
-  (total ofertado = todas as unidades). SQL gerada e validação contra o banco em
-  [`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md), seção 11.
-- **Assistente: "ticket médio" pode dividir pelo total de clientes cadastrados, não pelos que
-  compraram (não corrigido)** — a pergunta 3 literal, na rodada final, gerou
-  `SUM(valor_venda) / COUNT(*) FROM clientes` (todos os cadastrados) em vez de dividir pelos
-  clientes que efetivamente compraram, produzindo ticket médio ≈R$1,80M em vez do correto
-  ≈R$3,15M. Detalhe completo (incluindo por que isso não é a mesma coisa que o 1.440 da seção
-  "Camada analítica") em [`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md), seção 11.
+- **Assistente: "ticket médio" pode recorrer, num valor de CONTRASTE dentro da mesma resposta, ao
+  padrão do bug 1 (`COUNT` sem `DISTINCT` sobre a tabela de vendas, equivalente a `AVG`) —
+  corrigido para o valor principal, não corrigido para esse contexto secundário** — sessão 12
+  (`docs/log-tecnico-decisoes.md`, seção 19) corrigiu dois bugs de agregação do assistente
+  ("descontando"/"excluindo" distratos filtrando o denominador de velocidade de vendas, e ticket
+  médio dividindo pela população errada — todos os clientes cadastrados em vez de só quem
+  comprou), ambos validados sem regressão. Durante a validação, apareceu uma variação nova do
+  mesmo padrão do bug 1: ao responder "como isso distorceria o ticket médio se não fosse tratado",
+  o modelo às vezes calcula o valor de contraste "sem dedup" como
+  `SUM(valor_venda) / COUNT(cliente_id)` sem `DISTINCT` (população = número de vendas, não de
+  clientes) em vez de manter `COUNT(DISTINCT cliente_id)` variando só como o id é agrupado — o
+  valor PRINCIPAL do ticket médio continua correto (~R$3,15M), só esse contraste secundário pode
+  sair errado. Não corrigido nesta sessão (decisão explícita: não tentar uma 3ª instrução de prompt
+  para "consertar de vez" sem teste automatizado por trás). Detalhe completo em
+  [`docs/log-tecnico-decisoes.md`](docs/log-tecnico-decisoes.md), seções 11 e 19.
 - **Assistente: aviso de dedup depende do julgamento do LLM, não de checagem no código** — o
   prompt de sistema da Call 2 instrui a avisar quando a pergunta é sobre clientes
   únicos/duplicados, mas nada no código força esse aviso (não há detecção de palavra-chave do lado

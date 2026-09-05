@@ -16,9 +16,11 @@ Regras obrigatórias:
 - Adicione "LIMIT 50" ao final da consulta, EXCETO quando a pergunta pede um único valor agregado (COUNT, SUM, AVG, MIN, MAX sem GROUP BY) — nesse caso não adicione LIMIT.
 - Use somente as tabelas e views listadas abaixo, com os nomes de coluna exatos. Não invente tabela ou coluna.
 - "Média por X" ou "valor médio por X" (ex.: "ticket médio por cliente") — toda métrica de "média/ticket por X" (X = cliente ou qualquer outra entidade) SEMPRE divide pela contagem DISTINCT dessa entidade: SUM(coluna_de_valor) / COUNT(DISTINCT id_do_X). NUNCA divida pelo número de linhas/transações — isso vale independentemente da sintaxe usada: AVG(coluna_de_valor), COUNT(coluna) SEM DISTINCT, ou COUNT(*) são todas formas EQUIVALENTES entre si (numa tabela onde a coluna de id não é nula, COUNT(coluna) = COUNT(*)) e igualmente erradas para responder "por X" — não troque uma pela outra achando que é uma métrica diferente ou um "número de contraste bruto" legítimo; é o mesmo erro disfarçado. Se a pergunta pedir explicitamente um número "sem tratamento de deduplicação" para efeito de comparação, esse número AINDA usa COUNT(DISTINCT id_do_X) — a diferença entre "bruto" e "deduplicado" está em COMO o id_do_X é agrupado (ex.: por cliente_id bruto vs. por nome+cidade normalizados), nunca em ter ou não DISTINCT no denominador. Exemplo: "ticket médio por cliente" = SUM(valor_venda) / COUNT(DISTINCT cliente_id) — sempre, em qualquer variante da pergunta.
+- Para "ticket médio" ou "valor médio por cliente" especificamente, o denominador COUNT(DISTINCT cliente_id) é SEMPRE calculado a partir das VENDAS (v_vendas_norm ou vendas), NUNCA a partir da tabela clientes diretamente — a população do denominador é "clientes que têm pelo menos uma venda", nunca "todos os clientes cadastrados". PROIBIDO usar qualquer COUNT(...) FROM clientes (seja COUNT(*), seja COUNT(DISTINCT nome || cidade) ou qualquer outra coluna de clientes) como denominador de ticket médio — mesmo quando clientes.id é chave primária sem linha duplicada, isso ainda inclui clientes que nunca compraram, inflando o denominador e sub-representando o ticket médio real. Forma correta, sempre: SUM(v.valor_venda) / COUNT(DISTINCT v.cliente_id) FROM v_vendas_norm v (com JOIN, se a pergunta pedir outro corte) — nunca uma subquery separada contando linhas de clientes.
 - Ao somar desvios/diferenças que representam magnitude de erro, estouro ou divergência (valores que podem ser positivos ou negativos, onde o que importa é o tamanho do problema, não a direção), use sempre SUM(ABS(coluna)), nunca SUM(coluna) puro. A soma com sinal mascara a magnitude real quando valores positivos e negativos se cancelam no mesmo agrupamento — isso vale para QUALQUER pergunta sobre esse tipo de cálculo (divergência financeira, estouro de custo, ou variação futura da pergunta), não só para o exemplo abaixo.
 - Os valores de status_canonico (tanto em v_unidades_norm quanto em v_vendas_norm) são MUTUAMENTE EXCLUSIVOS por construção da view — uma unidade ou venda tem exatamente um status_canonico por vez, nunca dois ao mesmo tempo. Por isso, "líquido de X" ou "excluindo X" numa pergunta sobre contagem de um status-alvo Y (onde X e Y são dois valores diferentes de status_canonico do mesmo campo) já É o próprio COUNT/SUM de status_canonico = Y, SEM nenhuma subtração — X já está excluído de Y por definição, subtrair a contagem de X excluiria esse ajuste uma segunda vez. Antes de subtrair qualquer coisa numa pergunta desse tipo, verifique se os dois valores em jogo são valores diferentes do MESMO campo status_canonico: se forem, a resposta é a contagem direta, sem subtração. Exemplo: "unidades vendidas líquidas de distrato" = COUNT(status_canonico = 'vendida'), NUNCA COUNT(status_canonico='vendida') - COUNT(status_canonico='distrato') — uma unidade distratada nunca tem status_canonico = 'vendida', então "vendida" já é o número líquido de distrato.
 - Em perguntas sobre v_financeiro_reconciliado (divergência financeira), "mês" significa uma LINHA da tabela (um par empreendimento_id + mes_referencia), NUNCA um mês-calendário distinto — a granularidade da tabela já é por empreendimento, então o mesmo mês-calendário aparece em várias linhas (uma por empreendimento). "Em quantos meses isso ocorre" = COUNT(*) (contagem de linhas que atendem à condição), NUNCA COUNT(DISTINCT mes_referencia) — só use COUNT(DISTINCT mes_referencia) se a pergunta pedir explicitamente "mês-calendário distinto" ou frase equivalente.
+- O denominador de "total ofertado" (unidades) numa métrica de proporção/velocidade de vendas é SEMPRE COUNT(*) sobre TODAS as linhas de v_unidades_norm do empreendimento, SEM NENHUM filtro ou CASE que exclua um valor de status_canonico — mesmo quando a pergunta usa fraseado como "descontando os distratos", "excluindo as unidades distratadas", "sem contar os cancelamentos" ou "líquido de X" referindo-se a um valor de status_canonico. Essas frases descrevem a definição do NUMERADOR (que já é líquido por construção — ver regra de mútua exclusividade de status_canonico acima: uma unidade em 'distrato' nunca aparece como 'vendida'), NUNCA uma instrução para reduzir o denominador. Errado: SUM(CASE WHEN status_canonico != 'distrato' THEN 1 ELSE 0 END) como denominador — isso remove indevidamente unidades do total ofertado. Certo: COUNT(*) como denominador, sempre, para esse tipo de pergunta. Exceção: só use um denominador menor que COUNT(*) quando a pergunta define explicitamente um universo diferente que é o próprio assunto da pergunta, não uma exclusão aplicada a uma proporção de venda/distrato — ex.: "quantas unidades estão disponíveis hoje, e qual o valor total em oferta desse subconjunto?" filtra por status_canonico = 'disponivel' porque a pergunta é sobre esse subconjunto em si, não porque está "descontando" ou "excluindo" algo de uma métrica de velocidade de vendas.
 
 Schema disponível:
 
@@ -175,6 +177,17 @@ LIMIT 50`,
   },
   {
     role: "user",
+    content: "Qual o ticket médio por cliente, considerando todas as vendas?",
+  },
+  {
+    role: "assistant",
+    content: JSON.stringify({
+      sql: `SELECT SUM(v.valor_venda) / COUNT(DISTINCT v.cliente_id) AS ticket_medio
+FROM v_vendas_norm v`,
+    }),
+  },
+  {
+    role: "user",
     content: "Quais empreendimentos ficam em Manaus?",
   },
   {
@@ -183,6 +196,43 @@ LIMIT 50`,
       sql: `SELECT nome, cidade, uf, status
 FROM empreendimentos
 WHERE cidade = 'Manaus'
+LIMIT 50`,
+    }),
+  },
+  {
+    role: "user",
+    content:
+      "Descontando os distratos, quais os 3 empreendimentos com pior velocidade de vendas?",
+  },
+  {
+    role: "assistant",
+    content: JSON.stringify({
+      sql: `SELECT e.id, e.nome,
+  SUM(CASE WHEN u.status_canonico = 'vendida' THEN 1 ELSE 0 END) AS vendidas,
+  COUNT(*) AS total_ofertado,
+  ROUND(1.0 * SUM(CASE WHEN u.status_canonico = 'vendida' THEN 1 ELSE 0 END) / COUNT(*), 4) AS velocidade
+FROM v_unidades_norm u
+JOIN empreendimentos e ON e.id = u.empreendimento_id
+GROUP BY e.id
+ORDER BY velocidade ASC
+LIMIT 3`,
+    }),
+  },
+  {
+    role: "user",
+    content:
+      "Quantas unidades estão disponíveis hoje em cada empreendimento, e qual o valor total em oferta desse subconjunto?",
+  },
+  {
+    role: "assistant",
+    content: JSON.stringify({
+      sql: `SELECT e.id, e.nome,
+  COUNT(*) AS unidades_disponiveis,
+  SUM(u.valor_tabela) AS valor_total_disponivel
+FROM v_unidades_norm u
+JOIN empreendimentos e ON e.id = u.empreendimento_id
+WHERE u.status_canonico = 'disponivel'
+GROUP BY e.id
 LIMIT 50`,
     }),
   },

@@ -1492,3 +1492,109 @@ escrita); banco de trabalho não alterado (assistente é somente leitura, via `d
 
 Bugs 6 e do ticket médio (erro de raciocínio semântico do LLM, não do guardrail) permanecem não
 corrigidos nesta sessão, conforme escopo explícito.
+
+## 19. Sessão 12 — Assistente: correção do bug 6 (denominador de velocidade de vendas) e do bug de população do ticket médio (04/09/2026)
+
+Branch `fix/assistant-bugs`. Duas correções de `SYSTEM_PROMPT_SQL`
+(`lib/features/assistente/prompts.ts`), aplicadas e validadas uma de cada vez, conforme instruído.
+Nenhuma outra parte do código alterada (guardrail, execução, Call 2 intocados); nenhuma instrução
+genérica anterior removida, só adicionadas.
+
+### Correção 1 — bug 6 ("descontando"/"excluindo" filtrando o denominador)
+
+Instrução adicionada ao prompt (nova regra, após a regra de mútua exclusividade de
+`status_canonico`): o denominador de "total ofertado" numa métrica de proporção/velocidade de
+vendas é sempre `COUNT(*)` sobre todas as linhas de `v_unidades_norm` do empreendimento, sem
+nenhum filtro por `status_canonico` — mesmo com fraseado como "descontando os distratos",
+"excluindo as unidades distratadas", "sem contar os cancelamentos" ou "líquido de X" referindo-se a
+um valor de `status_canonico`. Essas frases descrevem o numerador (já líquido por construção),
+nunca uma instrução para reduzir o denominador. Exceção documentada: um denominador menor só é
+correto quando a pergunta define explicitamente um universo diferente que é o próprio assunto da
+pergunta (ex.: "quantas unidades estão disponíveis... e qual o valor total desse subconjunto"),
+não uma exclusão aplicada a uma proporção de venda/distrato. Dois exemplos novos adicionados ao
+few-shot: um reforçando o caso do bug ("descontando os distratos, quais os 3 piores...") e um
+diferenciador (pergunta que é ela mesma sobre o subconjunto `disponivel`, onde o filtro é
+legítimo).
+
+**Validação (antes de prosseguir para a correção 2, conforme instruído):**
+
+1. Os 2 fraseados originais que expuseram o bug — ambos corrigidos: "Descontando os distratos,
+   quais os 3 empreendimentos com pior velocidade de vendas?" e "Excluindo as unidades
+   distratadas, qual a velocidade de vendas de cada empreendimento? Quais os 3 piores?" agora geram
+   `COUNT(*)` como denominador (sem `CASE WHEN status_canonico != 'distrato'`) e batem exatamente
+   com a referência: Essência Living 6,84%, Atelier Tower 18,82%, Cume Tower 24,66% (`total_ofertado`
+   190/186/146, o total completo de unidades, não o total menos distratadas).
+2. As 4 perguntas de negócio (fraseado livre) — sem regressão, todos os números batendo com a
+   referência já documentada.
+3. Fraseado novo, não testado antes, para checar generalização (não memorização): "Sem contar os
+   cancelamentos, qual empreendimento vende melhor?" — respondeu Jardim Living, 73/76 = 96,05%
+   (`total_ofertado` = 76, o total completo, consistente com o item anterior desta lista de
+   ranking) — generalizou corretamente para um sinônimo ("cancelamentos") não usado no fraseado
+   original do bug nem no few-shot.
+
+### Correção 2 — ticket médio dividido pela população errada (todos os clientes cadastrados, não só quem comprou)
+
+Instrução adicionada (nova regra, logo após a regra original do bug 1): para "ticket médio"/"valor
+médio por cliente" especificamente, o `COUNT(DISTINCT cliente_id)` do denominador é sempre
+calculado a partir das VENDAS (`v_vendas_norm`/`vendas`), nunca a partir da tabela `clientes`
+diretamente — population do denominador é "clientes que compraram", nunca "todos os cadastrados".
+Proibido explicitamente qualquer `COUNT(...) FROM clientes` (`COUNT(*)` ou
+`COUNT(DISTINCT nome || cidade)`) como denominador de ticket médio. Um few-shot novo adicionado
+("Qual o ticket médio por cliente, considerando todas as vendas?" →
+`SUM(v.valor_venda) / COUNT(DISTINCT v.cliente_id) FROM v_vendas_norm v`).
+
+**Validação:**
+
+1. Pergunta 3 literal do enunciado ("Há indícios de cadastros de clientes duplicados... Como isso
+   distorceria uma métrica de número de clientes únicos ou de ticket médio por cliente, se não
+   fosse tratado?") — `ticket_medio_corrigido` = **R$3.151.438,36** (`SUM(v.valor_venda) /
+   COUNT(DISTINCT v.cliente_id) FROM v_vendas_norm v`), batendo exatamente com a referência já
+   validada em rodadas anteriores (~R$3,15M), não mais os ~R$1,80M do bug documentado no README.
+2. As 4 perguntas de negócio — sem regressão, incluindo a pergunta de clientes duplicados (9
+   grupos, aviso de dedup presente).
+3. Fraseado novo: "Qual o valor médio de venda por cliente que comprou?" →
+   `SUM(v.valor_venda) / COUNT(DISTINCT v.cliente_id) FROM v_vendas_norm v` = R$3.151.438,36 —
+   generalizou corretamente.
+
+### Variação NOVA encontrada durante a validação — não corrigida, conforme instruído
+
+Na mesma resposta da validação 1 da Correção 2 (pergunta 3 literal), o modelo gerou, ao lado do
+valor correto, uma segunda coluna de contraste:
+
+```sql
+(SELECT SUM(v.valor_venda) / COUNT(v.cliente_id) FROM v_vendas_norm v) AS ticket_medio_sem_dedup
+```
+
+— `COUNT(v.cliente_id)` **sem `DISTINCT`** sobre `v_vendas_norm` (população = número de vendas,
+não de clientes) para representar "o ticket médio se a duplicidade não fosse tratada". Isso é uma
+recorrência do padrão do **bug 1** (`COUNT(coluna)` sem `DISTINCT` sobre a tabela de transações ≡
+`AVG(valor_venda)` — mesmo defeito, já coberto pela regra existente do prompt, que já proíbe
+explicitamente esse padrão mesmo em contexto de "número sem tratamento de dedup para efeito de
+contraste"). Resultado: R$2.192.863,95 em vez do valor de contraste correto (que ainda deveria usar
+`COUNT(DISTINCT cliente_id)`, variando só como o id é agrupado, não a presença de `DISTINCT`).
+Diferente do erro do bug 1 original (que aparecia como o valor PRINCIPAL da resposta), aqui aparece
+como um valor SECUNDÁRIO de contraste dentro de uma resposta cujo valor principal (`ticket_medio_
+corrigido`) está correto — não invalida a validação 1 da Correção 2 acima, mas é uma variação nova
+do mesmo padrão de erro, num contexto (contraste "sem dedup") que a regra do bug 1 já deveria
+cobrir e, aparentemente, não cobriu desta vez.
+
+**Conforme instruído explicitamente: não foi feita uma terceira tentativa de ajuste de prompt para
+"consertar de vez"** — o padrão de 4 rodadas anteriores já mostrou que isso não generaliza bem sob
+pressão. Documentado aqui e no README (seção "Limitações conhecidas") como uma nova observação
+sobre o bug de ticket médio já existente (não um "bug 7" novo — é a mesma classe de erro, só um
+contexto de reprodução diferente), parando para decisão humana.
+
+### README atualizado
+
+- Removida a limitação "Assistente: 'descontando'/'excluindo' distratos filtra o denominador da
+  velocidade de vendas (Bug 6)" — confirmado corrigido e generalizado, sem regressão.
+- Mantida a limitação do ticket médio (valor principal agora correto quando a pergunta pede
+  diretamente o ticket médio, mas o padrão de erro ainda pode recorrer num contexto de contraste
+  "sem dedup" dentro da mesma resposta — texto da limitação atualizado para refletir isso, não
+  removido).
+
+### Verificação de qualidade
+
+`tsc --noEmit`, `eslint` (arquivo alterado), `prettier --check` (arquivo alterado) e `next build` —
+todos limpos, rodados depois de cada correção. Teste E2E persistido não rodado (fora do escopo);
+banco de trabalho não alterado (assistente é somente leitura).
