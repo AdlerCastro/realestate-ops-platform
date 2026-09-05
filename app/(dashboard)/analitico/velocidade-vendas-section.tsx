@@ -57,7 +57,7 @@ function GraficoVelocidade({
 
   if (data.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
+      <p className="text-base text-muted-foreground">
         Nenhum empreendimento no subconjunto filtrado.
       </p>
     );
@@ -150,7 +150,7 @@ export function VelocidadeVendasSection({
         <CardTitle>1. Velocidade de vendas por empreendimento</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Numerador = unidades com status normalizado &quot;vendida&quot; (já
           líquido de distrato — uma unidade cancelada volta para
           &quot;distrato&quot;, não &quot;vendida&quot;). Denominador = todas as
@@ -212,7 +212,7 @@ export function VelocidadeVendasSection({
           </div>
         </div>
 
-        <p className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+        <p className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
           Limitação conhecida da métrica (regra B2 em regras-de-negocio.md):
           tanto os piores quanto os melhores extremos de velocidade tendem a
           coincidir com o tempo desde o lançamento do empreendimento — a métrica
@@ -222,7 +222,7 @@ export function VelocidadeVendasSection({
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="flex flex-col gap-2">
-            <h3 className="text-sm font-medium text-destructive">3 piores</h3>
+            <h3 className="text-base font-medium text-destructive">3 piores</h3>
             <GraficoVelocidade
               itens={piores3}
               cor="var(--destructive)"
@@ -230,7 +230,7 @@ export function VelocidadeVendasSection({
             />
           </div>
           <div className="flex flex-col gap-2">
-            <h3 className="text-sm font-medium">3 melhores</h3>
+            <h3 className="text-base font-medium">3 melhores</h3>
             <GraficoVelocidade
               itens={melhores3}
               cor="var(--accent)"
@@ -239,7 +239,7 @@ export function VelocidadeVendasSection({
           </div>
         </div>
 
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           {filtrados.length} de {itens.length} empreendimentos no subconjunto
           filtrado atual.
         </p>

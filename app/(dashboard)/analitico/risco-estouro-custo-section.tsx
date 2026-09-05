@@ -171,7 +171,7 @@ export function RiscoEstouroCustoSection({
         <CardTitle>2. Risco de estouro de custo</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Magnitude acumulada (barra 1) = soma apenas dos meses em que o custo
           realizado superou o orçado no subconjunto filtrado (critério bruto,
           regra B3) — critério de ordenação (top-5). Desvio líquido (barra 2) =
@@ -269,7 +269,7 @@ export function RiscoEstouroCustoSection({
         </div>
 
         {data.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-base text-muted-foreground">
             Nenhum empreendimento no subconjunto filtrado.
           </p>
         ) : (
@@ -302,7 +302,7 @@ export function RiscoEstouroCustoSection({
               />
               <Legend
                 content={() => (
-                  <div className="flex items-center justify-center gap-4 pt-2 text-xs text-muted-foreground">
+                  <div className="flex items-center justify-center gap-4 pt-2 text-sm text-muted-foreground">
                     <span className="flex items-center gap-1.5">
                       <span
                         className="h-2.5 w-2.5 rounded-[2px]"
@@ -334,7 +334,7 @@ export function RiscoEstouroCustoSection({
           </ChartContainer>
         )}
 
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           {agregado.length} de{" "}
           {new Set(itens.map((i) => i.empreendimentoId)).size} empreendimentos
           no subconjunto filtrado atual.

@@ -8,7 +8,7 @@ export default function AssistentePage() {
     <div className="flex flex-col gap-4">
       <div>
         <h1 className="text-lg font-semibold">Assistente</h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-base text-muted-foreground">
           Pergunte em português sobre vendas, unidades, financeiro e
           empreendimentos. Este assistente só lê o banco — nenhuma escrita é
           feita a partir daqui.

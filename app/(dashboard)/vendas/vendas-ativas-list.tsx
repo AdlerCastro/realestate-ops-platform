@@ -20,7 +20,7 @@ export function VendasAtivasList({ vendas }: VendasAtivasListProps) {
 
   if (vendas.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
+      <p className="text-base text-muted-foreground">
         Nenhuma venda ativa encontrada.
       </p>
     );
@@ -36,20 +36,20 @@ export function VendasAtivasList({ vendas }: VendasAtivasListProps) {
           {vendas.map((venda) => (
             <Card key={venda.id} size="sm" data-testid={`venda-${venda.id}`}>
               <CardContent className="flex flex-col gap-1">
-                <p className="text-sm font-medium">
+                <p className="text-base font-medium">
                   {venda.empreendimento_nome} — {venda.unidade_identificador}
                 </p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-base text-muted-foreground">
                   {venda.cliente_nome}
                 </p>
-                <p className="text-sm">
+                <p className="text-base">
                   {formatarValor(venda.valor_venda)} · {venda.forma_pagamento}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   Vendida em {formatarData(venda.data_venda)}
                 </p>
                 {vendaComErro === venda.id && erro ? (
-                  <p role="alert" className="text-sm text-destructive">
+                  <p role="alert" className="text-base text-destructive">
                     {erro}
                   </p>
                 ) : null}
@@ -72,7 +72,7 @@ export function VendasAtivasList({ vendas }: VendasAtivasListProps) {
       </div>
 
       <div className="hidden max-h-128 overflow-y-auto md:block">
-        <table className="w-full text-left text-sm">
+        <table className="w-full text-left text-base">
           <thead className="sticky top-0 z-10 bg-card">
             <tr className="border-b border-border text-muted-foreground">
               <th className="py-2 pr-4 font-medium">Unidade</th>
@@ -112,7 +112,7 @@ export function VendasAtivasList({ vendas }: VendasAtivasListProps) {
                       : "Distratar"}
                   </Button>
                   {vendaComErro === venda.id && erro ? (
-                    <p role="alert" className="mt-1 text-sm text-destructive">
+                    <p role="alert" className="mt-1 text-base text-destructive">
                       {erro}
                     </p>
                   ) : null}

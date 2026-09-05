@@ -42,7 +42,7 @@ export function AssistenteForm() {
               {isPending ? "Consultando..." : "Perguntar"}
             </Button>
           </form>
-          {erro && <p className="mt-2 text-sm text-destructive">{erro}</p>}
+          {erro && <p className="mt-2 text-base text-destructive">{erro}</p>}
         </CardContent>
       </Card>
 
@@ -56,14 +56,14 @@ export function AssistenteForm() {
             </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            <p className="text-sm">{resultado.resposta}</p>
+            <p className="text-base">{resultado.resposta}</p>
 
             <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">
+              <span className="text-sm font-medium text-muted-foreground">
                 SQL{" "}
                 {resultado.status === "sucesso" ? "executada" : "que falhou"}
               </span>
-              <pre className="overflow-x-auto rounded-lg border border-border bg-muted/30 p-2 text-xs">
+              <pre className="overflow-x-auto rounded-lg border border-border bg-muted/30 p-2 text-sm">
                 <code>
                   {resultado.sql || "(nenhuma consulta válida foi gerada)"}
                 </code>
@@ -72,13 +72,13 @@ export function AssistenteForm() {
 
             {resultado.status === "sucesso" && (
               <div className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-muted-foreground">
+                <span className="text-sm font-medium text-muted-foreground">
                   {resultado.linhas.length} linha(s) retornada(s)
                 </span>
 
                 {resultado.linhas.length > 0 && (
                   <div className="overflow-x-auto rounded-lg border border-border">
-                    <table className="w-full text-xs">
+                    <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-border bg-muted/30">
                           {colunas.map((coluna) => (

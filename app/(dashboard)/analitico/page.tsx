@@ -28,7 +28,7 @@ export default async function AnaliticoPage() {
     <div className="flex flex-col gap-4">
       <div>
         <h1 className="text-lg font-semibold">Analítico</h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-base text-muted-foreground">
           Quatro indicadores de negócio calculados a partir dos dados
           normalizados do banco. Cada seção traz a premissa de tratamento de
           dado aplicada.

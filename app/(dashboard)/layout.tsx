@@ -17,7 +17,7 @@ export default async function DashboardLayout({
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <header className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <nav className="flex items-center gap-3 text-sm">
+        <nav className="flex items-center gap-3 text-base">
           <Link href="/analitico" className="font-medium">
             Cambará
           </Link>
@@ -41,7 +41,7 @@ export default async function DashboardLayout({
           </Link>
         </nav>
         <div className="flex items-center justify-between gap-3 sm:justify-end">
-          <span className="text-sm font-medium">{session.nome}</span>
+          <span className="text-base font-medium">{session.nome}</span>
           <LogoutButton />
         </div>
       </header>

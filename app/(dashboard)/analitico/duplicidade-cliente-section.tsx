@@ -18,7 +18,7 @@ function tituloGrupo(grupo: GrupoClienteDedupResumo): string {
 
 function ListaClientesGrupo({ grupo }: { grupo: GrupoClienteDedupResumo }) {
   return (
-    <div className="rounded-lg border border-border p-3 text-sm">
+    <div className="rounded-lg border border-border p-3 text-base">
       <p className="font-medium">{tituloGrupo(grupo)}</p>
       <ul className="mt-1 list-disc pl-4 text-muted-foreground">
         {grupo.clientes.map((cliente) => (
@@ -60,13 +60,13 @@ export function DuplicidadeClienteSection({
       <CardContent className="flex flex-col gap-4">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-lg border border-border p-3">
-            <p className="text-xs font-medium text-muted-foreground">
+            <p className="text-sm font-medium text-muted-foreground">
               Grupos duplicados
             </p>
             <p className="text-lg font-semibold">{totalGrupos}</p>
           </div>
           <div className="rounded-lg border border-border p-3">
-            <p className="text-xs font-medium text-muted-foreground">
+            <p className="text-sm font-medium text-muted-foreground">
               Alta / baixa confiança
             </p>
             <p className="text-lg font-semibold">
@@ -74,7 +74,7 @@ export function DuplicidadeClienteSection({
             </p>
           </div>
           <div className="rounded-lg border border-accent bg-accent/20 p-3">
-            <p className="text-xs font-medium text-muted-foreground">
+            <p className="text-sm font-medium text-muted-foreground">
               Clientes compradores únicos
             </p>
             <p className="text-lg font-semibold">
@@ -82,7 +82,7 @@ export function DuplicidadeClienteSection({
             </p>
           </div>
           <div className="rounded-lg border border-accent bg-accent/20 p-3">
-            <p className="text-xs font-medium text-muted-foreground">
+            <p className="text-sm font-medium text-muted-foreground">
               Ticket médio
             </p>
             <p className="text-lg font-semibold">
@@ -91,14 +91,14 @@ export function DuplicidadeClienteSection({
           </div>
         </div>
 
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Sem nenhum tratamento de duplicidade, a mesma base contaria{" "}
           {clientesCompradoresBruto.toLocaleString("pt-BR")} clientes
           compradores (ticket médio {formatarValor(ticketMedioBruto)}) — a
           diferença mostra o efeito de contar o mesmo cliente mais de uma vez.
         </p>
 
-        <div className="flex flex-col gap-2 text-xs text-muted-foreground">
+        <div className="flex flex-col gap-2 text-sm text-muted-foreground">
           <p>
             <strong className="text-foreground">Como foi verificado:</strong>{" "}
             cada cliente recebe uma chave a partir de nome + cidade normalizados
@@ -133,7 +133,7 @@ export function DuplicidadeClienteSection({
 
         {exemploAltaConfianca && (
           <details>
-            <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">
+            <summary className="cursor-pointer text-base font-medium text-muted-foreground hover:text-foreground">
               Ver exemplo de grupo de alta confiança (
               {gruposAltaConfianca.length} no total — não listados
               individualmente)
@@ -145,7 +145,7 @@ export function DuplicidadeClienteSection({
         )}
 
         <details open={gruposBaixaConfianca.length > 0}>
-          <summary className="cursor-pointer text-sm font-medium">
+          <summary className="cursor-pointer text-base font-medium">
             Requer verificação manual — {gruposBaixaConfianca.length} pares
           </summary>
           <div className="mt-2 flex flex-col gap-2">

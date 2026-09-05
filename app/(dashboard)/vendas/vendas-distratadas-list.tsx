@@ -19,7 +19,7 @@ interface VendasDistratadasListProps {
 export function VendasDistratadasList({ vendas }: VendasDistratadasListProps) {
   if (vendas.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
+      <p className="text-base text-muted-foreground">
         Nenhuma venda distratada encontrada.
       </p>
     );
@@ -32,16 +32,16 @@ export function VendasDistratadasList({ vendas }: VendasDistratadasListProps) {
           {vendas.map((venda) => (
             <Card key={venda.id} size="sm" data-testid={`distrato-${venda.id}`}>
               <CardContent className="flex flex-col gap-1">
-                <p className="text-sm font-medium">
+                <p className="text-base font-medium">
                   {venda.empreendimento_nome} — {venda.unidade_identificador}
                 </p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-base text-muted-foreground">
                   {venda.cliente_nome}
                 </p>
-                <p className="text-sm">
+                <p className="text-base">
                   {formatarValor(venda.valor_venda)} · {venda.forma_pagamento}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   Vendida em {formatarData(venda.data_venda)}
                   {venda.data_distrato
                     ? ` · Distratada em ${formatarData(venda.data_distrato)}`
@@ -54,7 +54,7 @@ export function VendasDistratadasList({ vendas }: VendasDistratadasListProps) {
       </div>
 
       <div className="hidden max-h-128 overflow-y-auto md:block">
-        <table className="w-full text-left text-sm">
+        <table className="w-full text-left text-base">
           <thead className="sticky top-0 z-10 bg-card">
             <tr className="border-b border-border text-muted-foreground">
               <th className="py-2 pr-4 font-medium">Unidade</th>

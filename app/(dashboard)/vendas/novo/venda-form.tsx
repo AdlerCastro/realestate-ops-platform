@@ -251,7 +251,7 @@ export function VendaForm({ unidades, clientes }: VendaFormProps) {
                 {vm.duplicatasEncontradas ? (
                   <div
                     role="alert"
-                    className="flex flex-col gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm"
+                    className="flex flex-col gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-base"
                   >
                     <p>
                       {vm.duplicatasEncontradas.length === 1
@@ -294,7 +294,7 @@ export function VendaForm({ unidades, clientes }: VendaFormProps) {
           </div>
 
           {vm.erro ? (
-            <p id={erroId} role="alert" className="text-sm text-destructive">
+            <p id={erroId} role="alert" className="text-base text-destructive">
               {vm.erro}
             </p>
           ) : null}

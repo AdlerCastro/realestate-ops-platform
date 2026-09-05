@@ -37,7 +37,7 @@ export function UnidadesList({ unidades }: UnidadesListProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">
+        <CardTitle className="text-lg">
           Unidades ({vm.unidadesFiltradas.length} de {unidades.length})
         </CardTitle>
       </CardHeader>
@@ -82,7 +82,7 @@ export function UnidadesList({ unidades }: UnidadesListProps) {
         </div>
 
         {vm.unidadesFiltradas.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-base text-muted-foreground">
             Nenhuma unidade encontrada.
           </p>
         ) : (
@@ -92,14 +92,14 @@ export function UnidadesList({ unidades }: UnidadesListProps) {
                 {vm.unidadesFiltradas.map((unidade) => (
                   <Card key={unidade.id} size="sm">
                     <CardContent className="flex flex-col gap-1">
-                      <p className="text-sm font-medium">
+                      <p className="text-base font-medium">
                         {unidade.empreendimento_nome} — {unidade.identificador}
                       </p>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-base text-muted-foreground">
                         {unidade.tipo} ·{" "}
                         {formatarArea(unidade.area_privativa_m2)}
                       </p>
-                      <p className="text-sm">
+                      <p className="text-base">
                         {formatarValor(unidade.valor_tabela)} ·{" "}
                         {STATUS_LABEL[unidade.status_canonico]}
                       </p>
@@ -110,7 +110,7 @@ export function UnidadesList({ unidades }: UnidadesListProps) {
             </div>
 
             <div className="hidden max-h-128 overflow-y-auto md:block">
-              <table className="w-full text-left text-sm">
+              <table className="w-full text-left text-base">
                 <thead className="sticky top-0 z-10 bg-card">
                   <tr className="border-b border-border text-muted-foreground">
                     <th className="py-2 pr-4 font-medium">Unidade</th>

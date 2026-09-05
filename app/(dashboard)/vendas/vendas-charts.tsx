@@ -57,7 +57,7 @@ export function VendasCharts({ vendas, unidadesPorStatus }: VendasChartsProps) {
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">
+          <CardTitle className="text-lg">
             Vendas ativas vs. distratadas
           </CardTitle>
         </CardHeader>
@@ -86,7 +86,7 @@ export function VendasCharts({ vendas, unidadesPorStatus }: VendasChartsProps) {
               <ChartLegend content={<ChartLegendContent nameKey="status" />} />
             </PieChart>
           </ChartContainer>
-          <p className="mt-2 text-center text-xs text-muted-foreground">
+          <p className="mt-2 text-center text-sm text-muted-foreground">
             {ativas} de {totalVendas} vendas ativas no total.
           </p>
         </CardContent>
@@ -94,7 +94,7 @@ export function VendasCharts({ vendas, unidadesPorStatus }: VendasChartsProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Unidades por status</CardTitle>
+          <CardTitle className="text-lg">Unidades por status</CardTitle>
         </CardHeader>
         <CardContent>
           <ChartContainer
@@ -121,7 +121,7 @@ export function VendasCharts({ vendas, unidadesPorStatus }: VendasChartsProps) {
               <ChartLegend content={<ChartLegendContent nameKey="status" />} />
             </PieChart>
           </ChartContainer>
-          <p className="mt-2 text-center text-xs text-muted-foreground">
+          <p className="mt-2 text-center text-sm text-muted-foreground">
             {totalUnidades} unidades cadastradas no total.
           </p>
         </CardContent>

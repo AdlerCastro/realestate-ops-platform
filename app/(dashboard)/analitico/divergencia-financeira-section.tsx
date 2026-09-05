@@ -88,7 +88,7 @@ export function DivergenciaFinanceiraSection({
         <CardTitle>4. Divergência financeira</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Resultado recalculado = receita reconhecida − custo incorrido −
           despesas corporativas rateadas. Meses cuja diferença para o valor
           reportado ultrapassa R$ 0,01 são marcados como divergentes. Não foi
@@ -99,7 +99,7 @@ export function DivergenciaFinanceiraSection({
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-lg border border-border p-3">
-            <p className="text-xs font-medium text-muted-foreground">
+            <p className="text-sm font-medium text-muted-foreground">
               Meses divergentes
             </p>
             <p className="text-lg font-semibold">
@@ -107,7 +107,7 @@ export function DivergenciaFinanceiraSection({
             </p>
           </div>
           <div className="rounded-lg border border-border p-3">
-            <p className="text-xs font-medium text-muted-foreground">
+            <p className="text-sm font-medium text-muted-foreground">
               Empreendimentos afetados
             </p>
             <p className="text-lg font-semibold">
@@ -115,7 +115,7 @@ export function DivergenciaFinanceiraSection({
             </p>
           </div>
           <div className="col-span-2 rounded-lg border border-border p-3">
-            <p className="text-xs font-medium text-muted-foreground">
+            <p className="text-sm font-medium text-muted-foreground">
               Soma das diferenças (absoluta)
             </p>
             <p className="text-lg font-semibold">
@@ -145,12 +145,12 @@ export function DivergenciaFinanceiraSection({
         </div>
 
         {!empreendimentoId ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-base text-muted-foreground">
             Selecione um empreendimento acima para ver a série temporal de
             resultado reportado vs. recalculado.
           </p>
         ) : serie.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-base text-muted-foreground">
             Nenhum dado financeiro para este empreendimento.
           </p>
         ) : (
@@ -202,7 +202,7 @@ export function DivergenciaFinanceiraSection({
                 />
               </AreaChart>
             </ChartContainer>
-            <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
+            <div className="flex items-center justify-center gap-4 text-sm text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 <span
                   className="h-2.5 w-2.5 rounded-[2px]"
@@ -219,7 +219,7 @@ export function DivergenciaFinanceiraSection({
               </span>
             </div>
             {empreendimentoSelecionado && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {empreendimentoSelecionado.nome}:{" "}
                 {empreendimentoSelecionado.mesesDivergentes} de{" "}
                 {empreendimentoSelecionado.mesesTotal} meses divergentes,{" "}

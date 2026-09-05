@@ -69,7 +69,7 @@ export function LoginForm() {
             />
           </div>
           {error ? (
-            <p id={errorId} role="alert" className="text-sm text-destructive">
+            <p id={errorId} role="alert" className="text-base text-destructive">
               {error}
             </p>
           ) : null}
