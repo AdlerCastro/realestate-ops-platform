@@ -452,6 +452,23 @@ decisões de implementação e correções, ver
 
 ## Limitações conhecidas
 
+- **Página inicial (`/`) sem conteúdo próprio — redireciona para `/analitico`** (sessão 10,
+  04/09/2026): `app/(dashboard)/page.tsx` faz só `redirect("/analitico")`, e o link "Cambará" da
+  navbar aponta direto para `/analitico` para evitar o hop extra. O redirecionamento
+  `router.push("/")` após login (`lib/features/auth/hooks/use-login.ts`) não foi ajustado — ainda
+  funciona (passa pelo redirect), só não evita o hop, por estar fora do escopo de autenticação
+  desta sessão.
+- **Filtros de intervalo de data em `/vendas` (`<input type="date">` nativo) podem exibir
+  `mm/dd/yyyy` no calendário, dependendo do idioma do navegador/SO** — o formato de exibição do
+  picker nativo é controlado pelo locale do navegador/SO, não pelo `lang` da página nem por
+  CSS/JS. `<html lang="pt-BR">` já está definido em `app/layout.tsx` desde o scaffolding, mas
+  testado nesta sessão (04/09/2026) contra um Chrome com UI em inglês: o picker continuou
+  mostrando `mm/dd/yyyy` mesmo com `lang="pt-BR"` — confirma que não há garantia universal, só uma
+  influência parcial dependente do ambiente. Nenhum texto formatado manualmente precisou de
+  correção (os campos de filtro não exibem o valor como texto em nenhum outro lugar da tela); a
+  coluna "Data" das tabelas de vendas já usa `toLocaleDateString('pt-BR')` (dd/mm/yyyy)
+  corretamente, sem relação com esse widget.
+
 **Nota de calibração de confiança — cobertura de teste do assistente de linguagem natural**: os
 testes manuais cobriram aproximadamente 17 fraseados distintos ao longo de 4 rodadas (5 na 1ª
 rodada, 8 novos na 2ª, 4 novos na 3ª, mais retestes pontuais na 4ª) — não um levantamento

@@ -377,8 +377,12 @@ humana explícita — nunca aplicada.
    do fluxo de distrato) — ver seção 14.
 8. ✅ **Vendas: gráficos, tabelas separadas, busca e filtros** — ver seção 15.
 9. ✅ **Vendas: campo perfil obrigatório, tabs e tabela de unidades** — ver seção 16.
-10. **README final + revisão de limitações** — consolidação, não é sessão de código. Ainda
-    pendente.
+10. ✅ **Home redirecionada para `/analitico`, diagnóstico de formato de data dos filtros e
+    auditoria final de documentação** — ver seção 17. Nota: diverge do plano original desta linha
+    ("consolidação, não é sessão de código") porque a sessão 10 recebeu, a pedido explícito do
+    humano no início da sessão, 2 pequenos itens de código (redirect da home e diagnóstico/ajuste
+    de locale dos filtros de data) além da auditoria de documentação — não é uma contradição da
+    seção 9 original, é um ajuste de escopo dado nesta sessão.
 
 ---
 
@@ -1284,3 +1288,97 @@ Total de vendas no banco de trabalho ao final: 2.213 (2.206 originais + 1 leftov
 presa como indisponível por conta de dado desta sessão. Se indesejado antes da apresentação de
 08/09, o procedimento de reset para a cópia pristina está documentado no README, seção
 "Operação/Runbook" — não executado nesta sessão (decisão de reset é do humano, não automática).
+
+---
+
+## 17. Sessão 10 — Home redirecionada, formato de data dos filtros, auditoria final (04/09/2026)
+
+Escopo: 3 itens, todos leitura/UI/documentação, nenhum tocando `/analitico`, assistente de LN,
+autenticação ou lógica de venda/distrato (regra da sessão) — nenhuma escrita no banco.
+
+### Item 1 — remoção da home como página própria
+
+`app/(dashboard)/page.tsx` substituído por um Server Component que só chama
+`redirect("/analitico")` (`next/navigation`), sem estado de loading. Link "Cambará" da navbar
+(`app/(dashboard)/layout.tsx`) atualizado de `href="/"` para `href="/analitico"`, evitando o hop
+de redirect na navegação normal. Confirmado (grep em `app/` e `lib/`) que nenhum outro link
+"Home" separado de "Cambará" depende da página antiga, e que nenhuma outra rota assume que `/`
+renderiza conteúdo próprio.
+
+**Achado não corrigido, fora de escopo**: `lib/features/auth/hooks/use-login.ts` faz
+`router.push("/")` após login bem-sucedido — continua funcionando (passa pelo redirect novo até
+`/analitico`), mas com o mesmo tipo de hop extra que o link da navbar evitou. Não ajustado porque
+o arquivo pertence ao domínio de autenticação, explicitamente fora de escopo desta sessão
+("NÃO tocar em... autenticação"). Sinalizado aqui para uma sessão futura que tenha autenticação em
+escopo.
+
+Validado no navegador (`pnpm dev`, sessão de login já ativa): `http://localhost:3000/` resolve
+para `http://localhost:3000/analitico` (`window.location.href` confirmado via console), e o link
+"Cambará" no DOM já aponta para `/analitico` (`document.querySelector('a[href="/analitico"]')`).
+
+### Item 2 — formato de data dos filtros (`/vendas`)
+
+Diagnóstico: os filtros de intervalo de data de venda/distrato (`app/(dashboard)/vendas/
+vendas-filtros.tsx`) usam `<Input type="date">` (wrapper fino de `@base-ui/react/input` sobre o
+`<input>` nativo do navegador, `components/ui/input.tsx`) — não um datepicker de terceiros com
+locale configurável via prop.
+
+Conforme a orientação da sessão para esse caso (formato do picker nativo não é controlável de
+forma confiável via CSS/JS): **não foi feita nenhuma tentativa de forçar o widget nativo**.
+Verificado que `<html lang="pt-BR">` já está presente em `app/layout.tsx` desde o scaffolding do
+projeto (não é uma alteração desta sessão) — mas o teste no navegador desta sessão (Chrome, UI em
+inglês; `navigator.language` e `document.documentElement.lang` ambos `"pt-BR"`) mostrou que o
+picker nativo em `/vendas` continua exibindo `mm/dd/yyyy` como placeholder, mesmo com o `lang`
+correto na página. Conclusão confirmada contra o comportamento real: o formato de exibição do
+calendário nativo do Chrome segue o idioma da interface do navegador/SO, não o atributo `lang` da
+página nem `navigator.language` — o `lang="pt-BR"` já aplicado não é garantia de correção em todo
+ambiente, exatamente como a ressalva original desta regra antecipava.
+
+Nenhum texto formatado manualmente precisou de correção: os 4 campos de data dos filtros
+(`vendas-filtros.tsx`) não têm nenhuma exibição de texto separada do próprio `<input>` (o valor
+`YYYY-MM-DD` só alimenta comparação client-side em `use-vendas-listagem.ts`, nunca é renderizado
+como texto). A coluna "Data" das tabelas de vendas (`vendas-ativas-list.tsx`,
+`vendas-distratadas-list.tsx`) já usa `new Date(iso).toLocaleDateString("pt-BR")` (dd/mm/yyyy)
+desde sessões anteriores — não precisou de nenhuma alteração, apenas confirmado que já segue o
+padrão correto e que não há relação entre essa formatação e o placeholder do widget de filtro.
+
+**Resultado**: nenhuma alteração de código foi necessária ou possível para este item além do que
+já existia (`lang="pt-BR"` já presente) — limitação documentada no README, seção "Limitações
+conhecidas".
+
+### Item 3 — auditoria de documentação
+
+Verificação executada, nenhuma correção de conteúdo necessária (só a atualização desta seção 17 e
+do item 10 da seção 9, e as duas entradas novas no README, ambas adições de documentação desta
+sessão, não correções de erro):
+
+- `docs/log-tecnico-decisoes.md`: `grep -n "^## "` confirma seções `## 1` a `## 16`, estritamente
+  sequenciais, sem número repetido. Seção 9 (sequenciamento) lista os itens 0–10 em ordem
+  cronológica correta: item 6 (dashboard analítico) antes do 7 (correções de escrita), antes do 8
+  (gráficos de vendas), antes do 9 (perfil/tabs) — confirmado batendo com a ordem pedida.
+- `docs/regras-de-negocio.md`: regra C6 está marcada `**REVERTIDA (04/09/2026)**`, com o texto
+  original preservado riscado e a regra atual (aviso não-bloqueante) documentada com data e
+  motivo. Regra C7 (`perfil` obrigatório) existe, com enum validado contra o banco
+  (`Morador`/`Investidor`/`Institucional`). Números da regra B4 — `grep` por `1.436`/`3.176.094`
+  no arquivo retorna uma única ocorrência, dentro da "Nota" que explica a divergência entre a
+  política atual e o número histórico (contexto explicitamente permitido) — nenhuma menção solta
+  fora desse contexto.
+- `README.md`: a remoção da home (item 1) e a limitação do formato de data do picker nativo (item 2) **não estavam documentadas** antes desta sessão (não existiam menções a "Bem-vindo"/página
+  inicial nem ao formato do date picker na seção "Limitações conhecidas") — adicionadas nesta
+  sessão como parte da definição de "sessão concluída" (`AGENTS.md` seção 6), não como correção de
+  erro pré-existente.
+
+**Achado adicional, fora do escopo dos 3 checks pedidos, não corrigido**: a frase de abertura do
+README ("Esta sessão (5, final) é de revisão e consolidação da documentação, sem código novo.",
+linha 15) está desatualizada — refere-se à sessão 5, mas o projeto já passou pelas sessões 6–9 e
+agora a 10. Não corrigido por não estar entre os 3 itens de auditoria pedidos explicitamente para
+esta sessão, e por ser uma mudança de conteúdo (não erro óbvio de digitação) — sinalizado aqui para
+confirmação humana antes de ajustar.
+
+### Verificação de qualidade
+
+`tsc --noEmit`, `pnpm lint` (eslint), `pnpm format:check` (prettier) e `pnpm build` — todos
+limpos. Teste E2E persistido **não** rodado nesta sessão, conforme instrução explícita (evitar
+sujar o banco de trabalho antes do reset final pré-apresentação) — os 3 itens desta sessão não
+tocam a camada de escrita, então a cobertura do teste E2E não é afetada por nenhuma mudança feita
+aqui.
