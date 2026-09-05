@@ -18,7 +18,7 @@ export default async function DashboardLayout({
     <div className="flex min-h-full flex-1 flex-col">
       <header className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <nav className="flex items-center gap-3 text-sm">
-          <Link href="/" className="font-medium">
+          <Link href="/analitico" className="font-medium">
             Cambará
           </Link>
           <Link
