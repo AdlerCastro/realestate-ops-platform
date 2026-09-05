@@ -370,11 +370,19 @@ humana explícita — nunca aplicada.
 4. ✅ **Assistente de linguagem natural** — duas chamadas Groq, guardrails, UI com SQL + resultado.
    Ver seção 11 para o detalhamento completo desta sessão, incluindo a troca de modelo e o teste
    manual pendente.
-5. **README final + revisão de limitações** — consolidação, não é sessão de código.
-6. ✅ **Correções na camada de escrita** (busca de cliente, aviso de dedup no cadastro, verificação
-   do fluxo de distrato) — ver seção 13.
-7. ✅ **Vendas: gráficos, tabelas separadas, busca e filtros** — ver seção 14.
-8. ✅ **Vendas: campo perfil obrigatório, tabs e tabela de unidades** — ver seção 15.
+5. ✅ Playwright promovido a devDependency real — ver seção 12.
+6. ✅ **Dashboard analítico — filtros e gráficos** — cidade/UF/tipo/período sobre as 4 perguntas de
+   negócio, gráficos bar/area do catálogo shadcn/ui. Ver seção 13 para o detalhamento completo.
+7. ✅ **Correções na camada de escrita** (busca de cliente, aviso de dedup no cadastro, verificação
+   do fluxo de distrato) — ver seção 14.
+8. ✅ **Vendas: gráficos, tabelas separadas, busca e filtros** — ver seção 15.
+9. ✅ **Vendas: campo perfil obrigatório, tabs e tabela de unidades** — ver seção 16.
+10. ✅ **Home redirecionada para `/analitico`, diagnóstico de formato de data dos filtros e
+    auditoria final de documentação** — ver seção 17. Nota: diverge do plano original desta linha
+    ("consolidação, não é sessão de código") porque a sessão 10 recebeu, a pedido explícito do
+    humano no início da sessão, 2 pequenos itens de código (redirect da home e diagnóstico/ajuste
+    de locale dos filtros de data) além da auditoria de documentação — não é uma contradição da
+    seção 9 original, é um ajuste de escopo dado nesta sessão.
 
 ---
 
@@ -772,7 +780,147 @@ independente de ele ser ou não devDependency do projeto.
 
 ---
 
-## 13. Sessão 6 — Correções na camada de escrita (04/09/2026)
+## 13. Sessão 6 — Dashboard analítico: filtros e gráficos (04/09/2026)
+
+Escopo fechado no início da sessão: só `/analitico` — filtros (cidade/UF/tipo/período) e gráficos
+para as 4 perguntas de negócio já fechadas na sessão 3. Nenhum filtro altera a fórmula de nenhuma
+métrica (regras B1-B4 de `docs/regras-de-negocio.md`) — filtro muda só o subconjunto de linhas
+exibido, nunca numerador/denominador. Assistente de linguagem natural e camada de escrita fora de
+escopo, não tocados.
+
+### Decisão parada para aprovação humana — `modelo_negocio` excluído dos filtros
+
+Antes de escrever qualquer filtro, checagem contra o banco real (`SELECT DISTINCT` nas 4 colunas
+candidatas a filtro de `empreendimentos`) encontrou `cidade`/`uf`/`tipo` limpos (12 cidades, 10 UFs,
+exatamente 3 valores de `tipo`), mas `modelo_negocio` com 9 grafias brutas para ~3 categorias reais
+(`SPE Incorporadora`/`spe incorporadora`/`SPE incorporadora`; `Obra por Administração`/`obra por
+administracao`/`OBRA POR ADM`; `incorporacao`/`Incorporação`/`Incorporacao`) — mesmo padrão sujo de
+A1/A2, mas sem view nem regra fechada em `docs/regras-de-negocio.md` para essa coluna. Parado e
+perguntado ao humano antes de decidir por conta própria (regra do `AGENTS.md` seção 4 e instrução
+explícita da sessão: "se algum [filtro] não for [trivial], pare e pergunte antes de prosseguir").
+
+**Decisão do humano**: excluir `modelo_negocio` dos filtros nesta sessão, em vez de normalizar em
+TypeScript ou expor as 9 grafias brutas. Os 4 filtros implementados (perguntas 1 e 2) são só
+cidade/UF/tipo. Se um filtro por modelo de negócio for necessário no futuro, precisa de uma decisão
+explícita de normalização (provavelmente análoga a A1/A2, mas em TS por cima de `empreendimentos`,
+já que não há view para essa coluna) — não implementado, não assumido.
+
+### Arquitetura de filtro: Server Component busca tudo, Client Component filtra local
+
+Mantém a arquitetura já travada (seção 3: Server Components lendo o banco direto, sem round-trip
+HTTP) sem contradizer o requisito de estado de filtro local (`useState`, sem URL): o repository
+(`lib/features/analitico/repository.ts`) passou a expor listas **sem agregação prévia por filtro**
+— granularidade completa (uma linha por empreendimento para velocidade; uma linha por
+empreendimento×mês para estouro de custo e para divergência financeira) — e cada seção virou um
+Client Component (`"use client"`) que recebe essa lista completa via props do Server Component
+(`page.tsx`) e faz filtro + agregação inteiramente no browser com `useMemo`, sem nova consulta ao
+banco a cada mudança de filtro. Tipos são importados com `import type` nos client components para
+não puxar `lib/db/connection` (e `better-sqlite3`) para o bundle do cliente.
+
+- `listarVelocidadeVendas()` — mesma função da sessão 3, só ganhou `cidade`/`uf`/`tipo` no SELECT
+  (join com `empreendimentos` já existia). Fórmula (numerador `status_canonico='vendida'`,
+  denominador todas as unidades) inalterada.
+- `listarRiscoEstouroCusto()` (agregada, sessão 3) foi **substituída** por
+  `listarEstouroCustoMensal()` (uma linha por empreendimento×mês, com `cidade`/`uf`/`tipo`) — a
+  agregação bruta/líquida (critério da regra B3) passou para uma função pura no client component
+  (`agregar()` em `risco-estouro-custo-section.tsx`), que soma só o subconjunto de meses que passou
+  pelo filtro de cidade/UF/tipo/período. Sem filtro (estado inicial), a agregação bate exatamente
+  com os números validados na sessão 3 (Panorama do Parque R$5.870.238,38 top-1, Cume Tower
+  R$3.106.416,68/R$53.966,04 bruto/líquido) — confirmado via script ad-hoc contra o banco real antes
+  de considerar a sessão concluída.
+- Nova função `listarDivergenciaMensal()` (uma linha por empreendimento×mês de
+  `v_financeiro_reconciliado`) alimenta o gráfico de área da pergunta 4. `obterDivergenciaFinanceira()`
+  (agregada, sessão 3) foi mantida como está — usada para os stat cards de totais e para ordenar as
+  opções do seletor de empreendimento (por soma de diferença absoluta desc).
+- Nenhuma `CREATE VIEW` nova, nenhum `ALTER TABLE` — todas as queries novas são `SELECT` puro sobre
+  tabelas/views já existentes (regra da seção 0 do `AGENTS.md`).
+
+### Filtro de período (estouro de custo) — preset simples, não intervalo livre
+
+A pergunta 2 pedia filtro de período sobre `obra_andamento.mes_referencia`, com a instrução
+explícita de "usar o padrão mais simples de implementar dado o tempo disponível". Implementado como
+um `<select>` com 4 presets (Todo o período / Últimos 6 / 12 / 24 meses), calculado contra a data
+corrente do sistema (`new Date()`) e comparado por string lexicográfica contra `mes_referencia`
+(formato `'YYYY-MM-01'`, já ordenável como string) — sem biblioteca de data nova. Descartada a opção
+de intervalo livre (dois seletores De/Até) por custar mais tempo de implementação sem ganho
+perceptível para o prazo desta sessão.
+
+### Gráficos — shadcn/ui chart + recharts (nova dependência)
+
+`components/ui/chart.tsx` instalado via `pnpm dlx shadcn@latest add chart` (wrapper padrão do
+catálogo shadcn — `ChartContainer`/`ChartTooltip`/`ChartConfig`, tema já usa as variáveis
+`--chart-1`..`--chart-5` existentes em `app/globals.css`). Isso trouxe `recharts@3.8.0` como
+**dependency real** do projeto (não dev — os gráficos rodam no client, em produção). O instalador
+tentou sobrescrever `components/ui/card.tsx` (já customizado neste projeto); respondido "não" à
+sobrescrita — só `chart.tsx` foi criado, `card.tsx` ficou intacto (confirmado via diff antes de
+prosseguir).
+
+Só bar chart (`BarChart`/`Bar`) e area chart (`AreaChart`/`Area`) foram usados, conforme decisão
+explícita da sessão — radar e radial não têm dado compatível com nenhuma das 4 perguntas e não
+foram introduzidos em nenhuma tela:
+
+- **Pergunta 1** (velocidade): duas seções de bar horizontal (`layout="vertical"` no recharts) —
+  "3 piores" (cor `--destructive`) e "3 melhores" (cor `--accent`), cada uma recalculada sobre o
+  subconjunto filtrado, com `.slice(0, 3)` (nunca quebra se o filtro reduzir a menos de 3
+  empreendimentos). Ressalva sobre a métrica não ser normalizada por tempo desde o lançamento fica
+  visível acima de ambas as seções, não só da pior.
+- **Pergunta 2** (estouro de custo): bar duplo horizontal, duas barras por empreendimento
+  (magnitude bruta / desvio líquido de referência), top-5 (confirmado contra a seção 9 antes de
+  fixar o corte — já era top-5 desde a sessão 3, não top-3). Cume Tower é forçado a aparecer no
+  conjunto exibido sempre que estiver presente no subconjunto filtrado (mesmo fora do top-5
+  nominal), porque é a evidência textual da regra B3; se o filtro excluir o empreendimento de fato
+  do subconjunto, o texto de apoio troca para uma frase genérica sem citar o projeto — nunca cita
+  um caso ausente dos dados filtrados atuais.
+- **Pergunta 4** (divergência financeira): area chart, eixo X = `mes_referencia`, duas séries
+  sobrepostas (`resultado_reportado`/`resultado_recalculado`, sem `stackId`, sobrepostas de
+  propósito para tornar visível onde as áreas não coincidem). Seletor de empreendimento é estado
+  local só deste gráfico (`useState`, não afeta as perguntas 1/2/3) — sem seleção nenhuma no estado
+  inicial, gráfico começa vazio (nem default, nem o de maior divergência), conforme pedido.
+
+### Pergunta 3 (duplicidade de cliente) — sem mudança de lógica, só de apresentação
+
+Nenhum filtro (regra explícita: retrato global independente dos filtros das outras 3 perguntas).
+Reaproveita `classificarGruposDedup`/`chaveDedup` de `lib/features/clientes/dedup.ts` sem nenhuma
+lógica nova — só a apresentação em `duplicidade-cliente-section.tsx` mudou: stat cards explícitos
+para os 4 números pedidos (97 grupos; 89 alta / 8 baixa confiança; clientes compradores únicos;
+ticket médio), confirmados contra o banco real via script ad-hoc antes de considerar a sessão
+concluída (**1.440** clientes / **R$ 3.167.271,61** de ticket médio — bate exatamente com a regra
+B4 de `docs/regras-de-negocio.md`, o número histórico de 1.436/R$3.176.094,10 nunca é renderizado
+na tela). Prosa de explicação de método expandida para cobrir explicitamente por que e-mail sozinho
+não serve como sinal geral de dedup nesta base (gerado a partir do próprio ID do cliente, garante
+unicidade artificial mesmo entre prováveis duplicatas reais) — esse ponto já estava documentado em
+`docs/regras-de-negocio.md` B4, mas não estava na prosa visível da UI antes desta sessão.
+
+### Validação mobile-first e acessibilidade — Playwright ad-hoc
+
+Chrome DevTools via extensão MCP não honrou o resize de viewport neste ambiente (testado 2x, sem
+efeito — screenshot sempre voltava à resolução desktop real da janela) — descartada essa rota após
+a tentativa falhar de forma consistente, conforme orientação de não insistir em ferramenta de
+browser que não responde como esperado. Validação refeita via Playwright ad-hoc (`npx
+playwright@1.62.1 test`, spec temporário dentro de `tests/e2e/` só durante a execução, removido ao
+final — não commitado, conforme exceção da seção 2 do `AGENTS.md`):
+
+- **Mobile (390×844)**: `document.body.scrollWidth` = `window.innerWidth` exatos (390px) — sem
+  overflow horizontal. Filtros empilham em coluna única, cards e gráficos legíveis (confirmado por
+  screenshot).
+- **Desktop (1280px)**: mesma checagem de largura, sem quebra.
+- **Acessibilidade básica**: todos os `<select>` de filtro (cidade/UF/tipo/período/empreendimento)
+  resolvidos via `getByLabel` do Playwright (só resolve com associação real `<Label htmlFor>` ↔
+  `<select id>`), navegação por teclado testada (foco + `ArrowDown` mudando o valor selecionado).
+
+Fluxo completo também conferido manualmente via Chrome MCP (fora do viewport mobile, já que o
+resize não funcionou): login com `candidato@cambara-teste.com.br`, os 4 gráficos renderizando com
+os números esperados, seleção de empreendimento no gráfico de divergência mostrando a série
+temporal com a divergência visualmente aparente entre as duas áreas.
+
+### Escopo não tocado, conforme instruído
+
+Assistente de linguagem natural (`/assistente`) e camada de escrita (`/vendas`, distratos) não
+foram tocados nesta sessão. Havia uma alteração pré-existente não commitada em
+`app/(dashboard)/vendas/page.tsx` no início da sessão (fora do escopo desta sessão) — não mexida,
+deixada como estava encontrada.
+
+## 14. Sessão 7 — Correções na camada de escrita (04/09/2026)
 
 Escopo: 3 itens em `/vendas` e `/vendas/novo` — busca de cliente existente, aviso de duplicidade no
 cadastro de cliente novo (reversão da regra C6), e verificação do fluxo de distrato. Nenhuma
@@ -861,7 +1009,7 @@ fluxo completo.
 
 ---
 
-## 14. Sessão 7 — Vendas: gráficos, tabelas separadas, busca e filtros (04/09/2026)
+## 15. Sessão 8 — Vendas: gráficos, tabelas separadas, busca e filtros (04/09/2026)
 
 Escopo: telas `/vendas` (listagem) e `/vendas/novo` (busca de unidade), conforme instrução da
 sessão — dashboard analítico, assistente de LN e autenticação não tocados; lógica de dedup (regra
@@ -990,7 +1138,7 @@ de reset é do humano, não automática).
 
 ---
 
-## 15. Sessão 8 — Vendas: campo perfil obrigatório, tabs e tabela de unidades (04/09/2026)
+## 16. Sessão 9 — Vendas: campo perfil obrigatório, tabs e tabela de unidades (04/09/2026)
 
 Escopo: 3 itens em `/vendas` e `/vendas/novo` — campo "Perfil" obrigatório no cadastro de cliente
 novo, refatoração das duas tabelas de vendas para um componente de tabs, e nova tabela de unidades
@@ -1140,3 +1288,97 @@ Total de vendas no banco de trabalho ao final: 2.213 (2.206 originais + 1 leftov
 presa como indisponível por conta de dado desta sessão. Se indesejado antes da apresentação de
 08/09, o procedimento de reset para a cópia pristina está documentado no README, seção
 "Operação/Runbook" — não executado nesta sessão (decisão de reset é do humano, não automática).
+
+---
+
+## 17. Sessão 10 — Home redirecionada, formato de data dos filtros, auditoria final (04/09/2026)
+
+Escopo: 3 itens, todos leitura/UI/documentação, nenhum tocando `/analitico`, assistente de LN,
+autenticação ou lógica de venda/distrato (regra da sessão) — nenhuma escrita no banco.
+
+### Item 1 — remoção da home como página própria
+
+`app/(dashboard)/page.tsx` substituído por um Server Component que só chama
+`redirect("/analitico")` (`next/navigation`), sem estado de loading. Link "Cambará" da navbar
+(`app/(dashboard)/layout.tsx`) atualizado de `href="/"` para `href="/analitico"`, evitando o hop
+de redirect na navegação normal. Confirmado (grep em `app/` e `lib/`) que nenhum outro link
+"Home" separado de "Cambará" depende da página antiga, e que nenhuma outra rota assume que `/`
+renderiza conteúdo próprio.
+
+**Achado não corrigido, fora de escopo**: `lib/features/auth/hooks/use-login.ts` faz
+`router.push("/")` após login bem-sucedido — continua funcionando (passa pelo redirect novo até
+`/analitico`), mas com o mesmo tipo de hop extra que o link da navbar evitou. Não ajustado porque
+o arquivo pertence ao domínio de autenticação, explicitamente fora de escopo desta sessão
+("NÃO tocar em... autenticação"). Sinalizado aqui para uma sessão futura que tenha autenticação em
+escopo.
+
+Validado no navegador (`pnpm dev`, sessão de login já ativa): `http://localhost:3000/` resolve
+para `http://localhost:3000/analitico` (`window.location.href` confirmado via console), e o link
+"Cambará" no DOM já aponta para `/analitico` (`document.querySelector('a[href="/analitico"]')`).
+
+### Item 2 — formato de data dos filtros (`/vendas`)
+
+Diagnóstico: os filtros de intervalo de data de venda/distrato (`app/(dashboard)/vendas/
+vendas-filtros.tsx`) usam `<Input type="date">` (wrapper fino de `@base-ui/react/input` sobre o
+`<input>` nativo do navegador, `components/ui/input.tsx`) — não um datepicker de terceiros com
+locale configurável via prop.
+
+Conforme a orientação da sessão para esse caso (formato do picker nativo não é controlável de
+forma confiável via CSS/JS): **não foi feita nenhuma tentativa de forçar o widget nativo**.
+Verificado que `<html lang="pt-BR">` já está presente em `app/layout.tsx` desde o scaffolding do
+projeto (não é uma alteração desta sessão) — mas o teste no navegador desta sessão (Chrome, UI em
+inglês; `navigator.language` e `document.documentElement.lang` ambos `"pt-BR"`) mostrou que o
+picker nativo em `/vendas` continua exibindo `mm/dd/yyyy` como placeholder, mesmo com o `lang`
+correto na página. Conclusão confirmada contra o comportamento real: o formato de exibição do
+calendário nativo do Chrome segue o idioma da interface do navegador/SO, não o atributo `lang` da
+página nem `navigator.language` — o `lang="pt-BR"` já aplicado não é garantia de correção em todo
+ambiente, exatamente como a ressalva original desta regra antecipava.
+
+Nenhum texto formatado manualmente precisou de correção: os 4 campos de data dos filtros
+(`vendas-filtros.tsx`) não têm nenhuma exibição de texto separada do próprio `<input>` (o valor
+`YYYY-MM-DD` só alimenta comparação client-side em `use-vendas-listagem.ts`, nunca é renderizado
+como texto). A coluna "Data" das tabelas de vendas (`vendas-ativas-list.tsx`,
+`vendas-distratadas-list.tsx`) já usa `new Date(iso).toLocaleDateString("pt-BR")` (dd/mm/yyyy)
+desde sessões anteriores — não precisou de nenhuma alteração, apenas confirmado que já segue o
+padrão correto e que não há relação entre essa formatação e o placeholder do widget de filtro.
+
+**Resultado**: nenhuma alteração de código foi necessária ou possível para este item além do que
+já existia (`lang="pt-BR"` já presente) — limitação documentada no README, seção "Limitações
+conhecidas".
+
+### Item 3 — auditoria de documentação
+
+Verificação executada, nenhuma correção de conteúdo necessária (só a atualização desta seção 17 e
+do item 10 da seção 9, e as duas entradas novas no README, ambas adições de documentação desta
+sessão, não correções de erro):
+
+- `docs/log-tecnico-decisoes.md`: `grep -n "^## "` confirma seções `## 1` a `## 16`, estritamente
+  sequenciais, sem número repetido. Seção 9 (sequenciamento) lista os itens 0–10 em ordem
+  cronológica correta: item 6 (dashboard analítico) antes do 7 (correções de escrita), antes do 8
+  (gráficos de vendas), antes do 9 (perfil/tabs) — confirmado batendo com a ordem pedida.
+- `docs/regras-de-negocio.md`: regra C6 está marcada `**REVERTIDA (04/09/2026)**`, com o texto
+  original preservado riscado e a regra atual (aviso não-bloqueante) documentada com data e
+  motivo. Regra C7 (`perfil` obrigatório) existe, com enum validado contra o banco
+  (`Morador`/`Investidor`/`Institucional`). Números da regra B4 — `grep` por `1.436`/`3.176.094`
+  no arquivo retorna uma única ocorrência, dentro da "Nota" que explica a divergência entre a
+  política atual e o número histórico (contexto explicitamente permitido) — nenhuma menção solta
+  fora desse contexto.
+- `README.md`: a remoção da home (item 1) e a limitação do formato de data do picker nativo (item 2) **não estavam documentadas** antes desta sessão (não existiam menções a "Bem-vindo"/página
+  inicial nem ao formato do date picker na seção "Limitações conhecidas") — adicionadas nesta
+  sessão como parte da definição de "sessão concluída" (`AGENTS.md` seção 6), não como correção de
+  erro pré-existente.
+
+**Achado adicional, fora do escopo dos 3 checks pedidos, não corrigido**: a frase de abertura do
+README ("Esta sessão (5, final) é de revisão e consolidação da documentação, sem código novo.",
+linha 15) está desatualizada — refere-se à sessão 5, mas o projeto já passou pelas sessões 6–9 e
+agora a 10. Não corrigido por não estar entre os 3 itens de auditoria pedidos explicitamente para
+esta sessão, e por ser uma mudança de conteúdo (não erro óbvio de digitação) — sinalizado aqui para
+confirmação humana antes de ajustar.
+
+### Verificação de qualidade
+
+`tsc --noEmit`, `pnpm lint` (eslint), `pnpm format:check` (prettier) e `pnpm build` — todos
+limpos. Teste E2E persistido **não** rodado nesta sessão, conforme instrução explícita (evitar
+sujar o banco de trabalho antes do reset final pré-apresentação) — os 3 itens desta sessão não
+tocam a camada de escrita, então a cobertura do teste E2E não é afetada por nenhuma mudança feita
+aqui.

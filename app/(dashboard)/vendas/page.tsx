@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import { listarVendasParaListagem } from "@/lib/features/vendas/repository";
 import {
   contarUnidadesPorStatus,
@@ -15,10 +14,13 @@ export default async function VendasPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Vendas</h1>
-        <Button size="sm" render={<Link href="/vendas/novo" />}>
+        <h1 className="text-lg font-semibold">Vendas </h1>
+        <Link
+          className="bg-primary text-primary-foreground hover:bg-primary/80 h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] [&_svg:not([class*='size-'])]:size-3.5 content-center"
+          href="/vendas/novo"
+        >
           Nova venda
-        </Button>
+        </Link>
       </div>
       <VendasDashboard
         vendas={vendas}

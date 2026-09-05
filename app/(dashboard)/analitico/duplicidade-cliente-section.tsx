@@ -31,12 +31,17 @@ function ListaClientesGrupo({ grupo }: { grupo: GrupoClienteDedupResumo }) {
   );
 }
 
+// Sem filtro (regra desta sessão): retrato global da base inteira,
+// independente dos filtros usados nas perguntas 1/2/4. Sem gráfico — só
+// stat cards + explicação em prosa (regra B4). Só os números ATUAIS da
+// política de alta/baixa confiança são exibidos; o número histórico
+// (1.436 / R$ 3.176.094,10, mesclando alta+baixa) fica só como comparação
+// interna do repository, nunca renderizado aqui.
 export function DuplicidadeClienteSection({
   resumo,
 }: DuplicidadeClienteSectionProps) {
   const {
     totalGrupos,
-    totalRegistrosEnvolvidos,
     gruposAltaConfianca,
     gruposBaixaConfianca,
     clientesCompradoresBruto,
@@ -53,47 +58,78 @@ export function DuplicidadeClienteSection({
         <CardTitle>3. Duplicidade de cliente</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <p className="text-xs text-muted-foreground">
-          Clientes agrupados por nome+cidade normalizados (acentos, espaços e
-          caixa ignorados). Grupos com e-mail sintético no padrão
-          &quot;contatoN@exemplo.com&quot; são de alta confiança e foram
-          mesclados automaticamente no cálculo corrigido. Os demais grupos com
-          nome+cidade coincidentes (8 pares) não têm nenhum outro sinal
-          confiável de duplicidade na base e ficam sinalizados para revisão
-          manual — não são mesclados em nenhum número.
-        </p>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-lg border border-border p-3">
             <p className="text-xs font-medium text-muted-foreground">
-              Bruto (sem tratamento)
+              Grupos duplicados
+            </p>
+            <p className="text-lg font-semibold">{totalGrupos}</p>
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-xs font-medium text-muted-foreground">
+              Alta / baixa confiança
             </p>
             <p className="text-lg font-semibold">
-              {clientesCompradoresBruto} clientes
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Ticket médio: {formatarValor(ticketMedioBruto)}
+              {gruposAltaConfianca.length} / {gruposBaixaConfianca.length}
             </p>
           </div>
           <div className="rounded-lg border border-accent bg-accent/20 p-3">
             <p className="text-xs font-medium text-muted-foreground">
-              Corrigido (alta confiança mesclada)
+              Clientes compradores únicos
             </p>
             <p className="text-lg font-semibold">
-              {clientesCompradoresCorrigido} clientes
+              {clientesCompradoresCorrigido.toLocaleString("pt-BR")}
             </p>
-            <p className="text-sm text-muted-foreground">
-              Ticket médio: {formatarValor(ticketMedioCorrigido)}
+          </div>
+          <div className="rounded-lg border border-accent bg-accent/20 p-3">
+            <p className="text-xs font-medium text-muted-foreground">
+              Ticket médio
+            </p>
+            <p className="text-lg font-semibold">
+              {formatarValor(ticketMedioCorrigido)}
             </p>
           </div>
         </div>
 
-        <p className="text-sm text-muted-foreground">
-          {totalGrupos} grupos de nome+cidade coincidentes (
-          {totalRegistrosEnvolvidos} clientes envolvidos):{" "}
-          {gruposAltaConfianca.length} de alta confiança (mesclados acima) e{" "}
-          {gruposBaixaConfianca.length} de baixa confiança (não mesclados).
+        <p className="text-xs text-muted-foreground">
+          Sem nenhum tratamento de duplicidade, a mesma base contaria{" "}
+          {clientesCompradoresBruto.toLocaleString("pt-BR")} clientes
+          compradores (ticket médio {formatarValor(ticketMedioBruto)}) — a
+          diferença mostra o efeito de contar o mesmo cliente mais de uma vez.
         </p>
+
+        <div className="flex flex-col gap-2 text-xs text-muted-foreground">
+          <p>
+            <strong className="text-foreground">Como foi verificado:</strong>{" "}
+            cada cliente recebe uma chave a partir de nome + cidade normalizados
+            (minúsculo, acentos removidos, espaços colapsados) — registros com a
+            mesma chave formam um grupo candidato a duplicidade.
+          </p>
+          <p>
+            <strong className="text-foreground">
+              O que separa alta de baixa confiança:
+            </strong>{" "}
+            um grupo só é fundido automaticamente (alta confiança) quando ao
+            menos um dos seus membros tem e-mail no padrão
+            &quot;contatoN@exemplo.com&quot; — sinal de dado sintético/gerado em
+            massa, não de cliente real. Grupos sem esse sinal (baixa confiança)
+            nunca são fundidos automaticamente; ficam sinalizados para revisão
+            manual.
+          </p>
+          <p>
+            <strong className="text-foreground">
+              Por que e-mail sozinho não serve como sinal geral de duplicidade
+              nesta base:
+            </strong>{" "}
+            o e-mail de cada cliente é gerado a partir do próprio ID do
+            registro, o que garante um e-mail único por cadastro mesmo entre
+            prováveis duplicatas reais — duas entradas do mesmo cliente real
+            sempre têm e-mails diferentes. Por isso e-mail só entra como sinal
+            no caso específico e detectável do padrão sintético
+            &quot;contatoN@exemplo.com&quot;, nunca como comparação geral de
+            e-mail entre registros.
+          </p>
+        </div>
 
         {exemploAltaConfianca && (
           <details>

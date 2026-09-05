@@ -244,21 +244,36 @@ build && next start`, com qualquer composição (com ou sem `ChartContainer`, `C
 
 Dashboard em `/analitico` (`app/(dashboard)/analitico/`), Server Component que lê diretamente de
 `lib/features/analitico/repository.ts` — sem hook, sem TanStack Query, sem cache — respondendo as
-4 perguntas de negócio do enunciado. Mobile-first: cards empilhados no viewport mobile, tabela a
-partir de `md:`. Cada seção traz uma nota visível (não em tooltip) explicando a premissa de
-tratamento de dado aplicada — ver `docs/regras-de-negocio.md` para o detalhamento completo de cada
-regra, com evidência contra o banco real.
+4 perguntas de negócio do enunciado. Mobile-first: filtros e cards empilhados em coluna única no
+viewport mobile, layout expandindo a partir de `sm:`/`md:`. Cada seção traz uma nota visível (não
+em tooltip) explicando a premissa de tratamento de dado aplicada — ver `docs/regras-de-negocio.md`
+para o detalhamento completo de cada regra, com evidência contra o banco real.
+
+O Server Component busca as listas **completas, sem agregação por filtro**; cada seção é um Client
+Component que filtra e agrega localmente (`useState`/`useMemo`, sem sincronizar com a URL, sem nova
+consulta ao banco por mudança de filtro). Nenhum filtro altera a fórmula de nenhuma métrica — muda
+só o subconjunto de linhas exibido. Gráficos usam só bar chart e area chart do catálogo
+[shadcn/ui](https://ui.shadcn.com/charts) (`components/ui/chart.tsx`, sobre `recharts`).
 
 - **Velocidade de vendas líquida de distrato** — numerador `status_canonico = 'vendida'`
-  (`v_unidades_norm`), denominador todas as unidades do empreendimento. 3 piores destacados na UI:
-  Essência Living (6,84%), Atelier Tower (18,82%), Cume Tower (24,66%).
+  (`v_unidades_norm`), denominador todas as unidades do empreendimento. Filtros: cidade/UF/tipo.
+  Duas seções de bar chart horizontal, recalculadas sobre o subconjunto filtrado: "3 piores" e "3
+  melhores". Sem filtro: Essência Living (6,84%), Atelier Tower (18,82%), Cume Tower (24,66%) nos 3
+  piores.
 - **Risco de estouro de custo** — direto contra `obra_andamento`, magnitude = soma só dos meses
-  com estouro positivo (critério bruto), desvio líquido exposto como referência secundária.
+  com estouro positivo (critério bruto), desvio líquido exposto como referência secundária. Filtros:
+  cidade/UF/tipo + período (todo o período / últimos 6, 12 ou 24 meses). Bar chart duplo, top-5 por
+  magnitude bruta; Cume Tower (evidência da regra B3) é mantido visível sempre que presente no
+  subconjunto filtrado, mesmo fora do top-5 nominal.
 - **Duplicidade de cliente** — usa `classificarGruposDedup`; só grupos de alta confiança (e-mail
   sintético `contatoN@exemplo.com`) entram no cálculo "corrigido" de clientes únicos/ticket médio;
   os 8 pares de baixa confiança ficam listados como "requer verificação manual", nunca mesclados.
-- **Divergência financeira** — direto de `v_financeiro_reconciliado`, totais e detalhamento por
-  empreendimento.
+  Sem filtro (retrato global da base inteira, independente dos filtros das outras 3 perguntas) e
+  sem gráfico — stat cards + explicação em prosa do método.
+- **Divergência financeira** — direto de `v_financeiro_reconciliado`, stat cards com os totais.
+  Seletor de empreendimento local a este gráfico (não afeta as outras 3 perguntas), começa vazio;
+  ao selecionar, area chart com `resultado_reportado` e `resultado_recalculado` sobrepostos ao
+  longo do tempo — a divergência fica visível onde as duas áreas não coincidem.
 
 **Nota sobre a métrica de dedup**: o número exibido no dashboard (1.440 clientes compradores
 únicos / R$ 3.167.271,61 de ticket médio) reflete a política atual (merge só de alta confiança) e
@@ -437,6 +452,23 @@ decisões de implementação e correções, ver
 
 ## Limitações conhecidas
 
+- **Página inicial (`/`) sem conteúdo próprio — redireciona para `/analitico`** (sessão 10,
+  04/09/2026): `app/(dashboard)/page.tsx` faz só `redirect("/analitico")`, e o link "Cambará" da
+  navbar aponta direto para `/analitico` para evitar o hop extra. O redirecionamento
+  `router.push("/")` após login (`lib/features/auth/hooks/use-login.ts`) não foi ajustado — ainda
+  funciona (passa pelo redirect), só não evita o hop, por estar fora do escopo de autenticação
+  desta sessão.
+- **Filtros de intervalo de data em `/vendas` (`<input type="date">` nativo) podem exibir
+  `mm/dd/yyyy` no calendário, dependendo do idioma do navegador/SO** — o formato de exibição do
+  picker nativo é controlado pelo locale do navegador/SO, não pelo `lang` da página nem por
+  CSS/JS. `<html lang="pt-BR">` já está definido em `app/layout.tsx` desde o scaffolding, mas
+  testado nesta sessão (04/09/2026) contra um Chrome com UI em inglês: o picker continuou
+  mostrando `mm/dd/yyyy` mesmo com `lang="pt-BR"` — confirma que não há garantia universal, só uma
+  influência parcial dependente do ambiente. Nenhum texto formatado manualmente precisou de
+  correção (os campos de filtro não exibem o valor como texto em nenhum outro lugar da tela); a
+  coluna "Data" das tabelas de vendas já usa `toLocaleDateString('pt-BR')` (dd/mm/yyyy)
+  corretamente, sem relação com esse widget.
+
 **Nota de calibração de confiança — cobertura de teste do assistente de linguagem natural**: os
 testes manuais cobriram aproximadamente 17 fraseados distintos ao longo de 4 rodadas (5 na 1ª
 rodada, 8 novos na 2ª, 4 novos na 3ª, mais retestes pontuais na 4ª) — não um levantamento
@@ -452,6 +484,13 @@ silencioso de definição** (um número plausível, mas matematicamente errado, 
 visível de falha na resposta), e não apenas risco de indisponibilidade ou da resposta padrão "não
 consegui responder com confiança nos dados disponíveis".
 
+- **Filtro por `modelo_negocio` não implementado no dashboard analítico** — ao contrário de
+  `cidade`/`uf`/`tipo` (limpos), `empreendimentos.modelo_negocio` tem 9 grafias brutas para ~3
+  categorias reais (mesmo padrão sujo de A1/A2, mas sem view/regra fechada em
+  `docs/regras-de-negocio.md` para essa coluna). Parado e perguntado ao humano na sessão de
+  filtros/gráficos (04/09/2026, ver `docs/log-tecnico-decisoes.md` seção 13) — decisão explícita:
+  excluir esse filtro desta sessão em vez de normalizar sem uma regra fechada. Só cidade/UF/tipo
+  estão implementados.
 - **Velocidade de vendas não é normalizada por tempo desde o lançamento** — comparar
   empreendimentos pela contagem/ritmo bruto de vendas mistura "vende mal" com "foi lançado há
   pouco tempo". Normalização por `data_lancamento` fica para sessão futura de métricas.
