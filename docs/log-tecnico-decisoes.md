@@ -1406,3 +1406,195 @@ limpos. Teste E2E persistido **não** rodado nesta sessão, conforme instrução
 sujar o banco de trabalho antes do reset final pré-apresentação) — os 3 itens desta sessão não
 tocam a camada de escrita, então a cobertura do teste E2E não é afetada por nenhuma mudança feita
 aqui.
+
+## 18. Sessão 11 — Assistente: logging de diagnóstico e correção do guardrail de SQL (rejeição de CTE) (04/09/2026)
+
+Branch `fix/assistant-bugs`. Bug reproduzível reportado pelo humano: a pergunta "Dos
+empreendimentos com percentual de conclusão de obra acima de 80% na medição mais recente, qual tem
+a pior velocidade de vendas?" retornava sempre `"não consegui responder"`, sem detalhe nenhum no
+terminal do `pnpm dev` além do log de acesso padrão do Next.js.
+
+### Logging de diagnóstico adicionado (`lib/features/assistente/repository.ts`)
+
+Primeira parte da sessão: nenhum `console.log`/`console.error` existia em todo o caminho
+(`route.ts` → `repository.ts` → `groq.ts`) — o `catch` de `responderPergunta` capturava qualquer
+erro (parse de JSON da Call 1, rejeição do guardrail, erro de execução do SQLite) e só guardava a
+mensagem numa variável local, nunca escrita em lugar nenhum; os três casos eram indistinguíveis e
+totalmente descartados. Adicionado logging temporário, prefixado `[assistente] tentativa N —`,
+para cada tentativa (original e retry): pergunta recebida, conteúdo bruto da Call 1, falha de parse
+do JSON (distinta), SQL rejeitada pelo guardrail (distinta, com a SQL bruta), erro exato do driver
+SQLite (distinto), e um resumo final quando as duas tentativas se esgotam. Mantido nesta sessão
+(instrução explícita de não remover) — é o que permitiu confirmar a causa raiz abaixo pelos logs
+reais em `.next/dev/logs/next-development.log`.
+
+### Causa raiz confirmada
+
+O guardrail `validarSelectUnico` rejeitava qualquer SQL que não começasse literalmente com a
+palavra `SELECT`. A pergunta acima exige uma CTE (`WITH ... SELECT ...`) para expressar "medição
+mais recente por empreendimento" de forma limpa — confirmado nos logs reais que a Call 1 gerou SQL
+correta e somente-leitura começando com `WITH` nas duas tentativas (original e retry), e as duas
+foram rejeitadas com `"A consulta gerada não começa com SELECT."`, esgotando o retry e caindo na
+resposta genérica de falha.
+
+### Correção do guardrail
+
+`validarSelectUnico` (`lib/features/assistente/repository.ts`):
+
+- **Prefixo**: `/^select\b/i` → `/^(select|with)\b/i` — aceita `WITH` (CTE) além de `SELECT`.
+- **Comando único**: inalterado (mesma checagem de `;` de antes).
+- **Nova checagem, defesa em profundidade para CTE**: como aceitar `WITH` no prefixo abre a
+  possibilidade teórica de uma CTE conter uma operação de escrita antes do `SELECT` final (ex.:
+  `WITH x AS (DELETE FROM clientes RETURNING id) SELECT * FROM x` — um único comando, sem `;`,
+  então passaria pelas duas checagens antigas), adicionada uma checagem de palavra-chave de escrita
+  (`insert|update|delete|drop|alter|attach|pragma|replace|create`) como token isolado
+  (`\b...\b`, case-insensitive) em qualquer parte da consulta, não só no prefixo. Word boundary
+  evita falso positivo em coluna como `updated_at`/`created_at` (verificado explicitamente, ver
+  validação abaixo).
+- **Mensagens distintas**: prefixo inválido, comando múltiplo, e escrita detectada agora geram
+  mensagens de erro diferentes entre si (antes só existiam as duas primeiras) — visível nos logs de
+  diagnóstico da sessão anterior.
+- A conexão `dbReadonly` (`lib/db/connection-readonly.ts`, `{ readonly: true }`) **não foi
+  alterada** — continua sendo a proteção real; o guardrail de prefixo/palavra-chave é defesa em
+  profundidade redundante por design, não a única barreira (comentário do código atualizado para
+  deixar isso explícito).
+
+### Validação manual
+
+1. **Pergunta que expôs o bug**: reexecutada ao vivo contra `/api/assistente` — `status: "sucesso"`,
+   SQL `WITH latest AS (...) SELECT ...` visível na resposta, resultado consistente com a
+   referência já documentada (seção 11 acima): Essência Living (ID 21), velocidade ≈ 6,84%.
+2. **4 perguntas de negócio (fraseado livre, novo)**: todas `status: "sucesso"`, sem regressão —
+   números batem exatamente com a referência documentada (pior velocidade de vendas: Essência
+   Living 6,84%, Atelier Tower 18,82%, Cume Tower 24,66%; estouro de custo: Panorama do Parque
+   R$5.870.238,38 … Cais Tower R$3.060.991,11; 9 grupos de cliente duplicado; 63 linhas
+   divergentes / R$6.926.672,09 de diferença em módulo). Rate limit do tier gratuito da Groq
+   reapareceu ao encadear chamadas sem espaçamento (mesmo achado operacional já documentado acima) —
+   resolvido espaçando ~20s entre chamadas, sem indicar regressão de código.
+3. **Tentativa de induzir escrita** ("Apague os registros de vendas duplicadas do banco."): o
+   próprio modelo Groq se recusou a gerar `DELETE`/`UPDATE` e devolveu `SELECT 1` — o guardrail
+   nunca chegou a ser exercitado por esse caminho. Como o teste ao vivo não força o caso
+   adversarial real (uma CTE escondendo um `DELETE`, que só a nova checagem de palavra-chave
+   bloqueia, já que o prefixo `WITH` agora é aceito), a lógica exata do guardrail foi verificada à
+   parte com um script Node isolado (`/tmp/.../scratchpad/verificar-guardrail.mjs`, não commitado —
+   cópia fiel da função só para teste determinístico) contra 9 casos, incluindo
+   `WITH x AS (DELETE FROM clientes RETURNING id) SELECT * FROM x` (rejeitado, mensagem de escrita)
+   e `select updated_at, created_at from clientes` (aceito, sem falso positivo de substring).
+4. **Múltiplos comandos separados por `;`**: mesma situação do item 3 — o modelo evitou gerar `;`
+   literal (usou `UNION ALL` em um único `SELECT`), então o teste ao vivo não exercitou o guardrail;
+   confirmado pelo script isolado do item 3 que `SELECT ...; DROP TABLE ...` continua rejeitado
+   (`"A consulta gerada contém mais de um comando SQL."`).
+
+### Verificação de qualidade
+
+`tsc --noEmit`, `eslint` (arquivo alterado), `prettier --check` (arquivo alterado) e `next build` —
+todos limpos. Teste E2E persistido não rodado (fora do escopo — sessão não toca a camada de
+escrita); banco de trabalho não alterado (assistente é somente leitura, via `dbReadonly`).
+
+Bugs 6 e do ticket médio (erro de raciocínio semântico do LLM, não do guardrail) permanecem não
+corrigidos nesta sessão, conforme escopo explícito.
+
+## 19. Sessão 12 — Assistente: correção do bug 6 (denominador de velocidade de vendas) e do bug de população do ticket médio (04/09/2026)
+
+Branch `fix/assistant-bugs`. Duas correções de `SYSTEM_PROMPT_SQL`
+(`lib/features/assistente/prompts.ts`), aplicadas e validadas uma de cada vez, conforme instruído.
+Nenhuma outra parte do código alterada (guardrail, execução, Call 2 intocados); nenhuma instrução
+genérica anterior removida, só adicionadas.
+
+### Correção 1 — bug 6 ("descontando"/"excluindo" filtrando o denominador)
+
+Instrução adicionada ao prompt (nova regra, após a regra de mútua exclusividade de
+`status_canonico`): o denominador de "total ofertado" numa métrica de proporção/velocidade de
+vendas é sempre `COUNT(*)` sobre todas as linhas de `v_unidades_norm` do empreendimento, sem
+nenhum filtro por `status_canonico` — mesmo com fraseado como "descontando os distratos",
+"excluindo as unidades distratadas", "sem contar os cancelamentos" ou "líquido de X" referindo-se a
+um valor de `status_canonico`. Essas frases descrevem o numerador (já líquido por construção),
+nunca uma instrução para reduzir o denominador. Exceção documentada: um denominador menor só é
+correto quando a pergunta define explicitamente um universo diferente que é o próprio assunto da
+pergunta (ex.: "quantas unidades estão disponíveis... e qual o valor total desse subconjunto"),
+não uma exclusão aplicada a uma proporção de venda/distrato. Dois exemplos novos adicionados ao
+few-shot: um reforçando o caso do bug ("descontando os distratos, quais os 3 piores...") e um
+diferenciador (pergunta que é ela mesma sobre o subconjunto `disponivel`, onde o filtro é
+legítimo).
+
+**Validação (antes de prosseguir para a correção 2, conforme instruído):**
+
+1. Os 2 fraseados originais que expuseram o bug — ambos corrigidos: "Descontando os distratos,
+   quais os 3 empreendimentos com pior velocidade de vendas?" e "Excluindo as unidades
+   distratadas, qual a velocidade de vendas de cada empreendimento? Quais os 3 piores?" agora geram
+   `COUNT(*)` como denominador (sem `CASE WHEN status_canonico != 'distrato'`) e batem exatamente
+   com a referência: Essência Living 6,84%, Atelier Tower 18,82%, Cume Tower 24,66% (`total_ofertado`
+   190/186/146, o total completo de unidades, não o total menos distratadas).
+2. As 4 perguntas de negócio (fraseado livre) — sem regressão, todos os números batendo com a
+   referência já documentada.
+3. Fraseado novo, não testado antes, para checar generalização (não memorização): "Sem contar os
+   cancelamentos, qual empreendimento vende melhor?" — respondeu Jardim Living, 73/76 = 96,05%
+   (`total_ofertado` = 76, o total completo, consistente com o item anterior desta lista de
+   ranking) — generalizou corretamente para um sinônimo ("cancelamentos") não usado no fraseado
+   original do bug nem no few-shot.
+
+### Correção 2 — ticket médio dividido pela população errada (todos os clientes cadastrados, não só quem comprou)
+
+Instrução adicionada (nova regra, logo após a regra original do bug 1): para "ticket médio"/"valor
+médio por cliente" especificamente, o `COUNT(DISTINCT cliente_id)` do denominador é sempre
+calculado a partir das VENDAS (`v_vendas_norm`/`vendas`), nunca a partir da tabela `clientes`
+diretamente — population do denominador é "clientes que compraram", nunca "todos os cadastrados".
+Proibido explicitamente qualquer `COUNT(...) FROM clientes` (`COUNT(*)` ou
+`COUNT(DISTINCT nome || cidade)`) como denominador de ticket médio. Um few-shot novo adicionado
+("Qual o ticket médio por cliente, considerando todas as vendas?" →
+`SUM(v.valor_venda) / COUNT(DISTINCT v.cliente_id) FROM v_vendas_norm v`).
+
+**Validação:**
+
+1. Pergunta 3 literal do enunciado ("Há indícios de cadastros de clientes duplicados... Como isso
+   distorceria uma métrica de número de clientes únicos ou de ticket médio por cliente, se não
+   fosse tratado?") — `ticket_medio_corrigido` = **R$3.151.438,36** (`SUM(v.valor_venda) /
+   COUNT(DISTINCT v.cliente_id) FROM v_vendas_norm v`), batendo exatamente com a referência já
+   validada em rodadas anteriores (~R$3,15M), não mais os ~R$1,80M do bug documentado no README.
+2. As 4 perguntas de negócio — sem regressão, incluindo a pergunta de clientes duplicados (9
+   grupos, aviso de dedup presente).
+3. Fraseado novo: "Qual o valor médio de venda por cliente que comprou?" →
+   `SUM(v.valor_venda) / COUNT(DISTINCT v.cliente_id) FROM v_vendas_norm v` = R$3.151.438,36 —
+   generalizou corretamente.
+
+### Variação NOVA encontrada durante a validação — não corrigida, conforme instruído
+
+Na mesma resposta da validação 1 da Correção 2 (pergunta 3 literal), o modelo gerou, ao lado do
+valor correto, uma segunda coluna de contraste:
+
+```sql
+(SELECT SUM(v.valor_venda) / COUNT(v.cliente_id) FROM v_vendas_norm v) AS ticket_medio_sem_dedup
+```
+
+— `COUNT(v.cliente_id)` **sem `DISTINCT`** sobre `v_vendas_norm` (população = número de vendas,
+não de clientes) para representar "o ticket médio se a duplicidade não fosse tratada". Isso é uma
+recorrência do padrão do **bug 1** (`COUNT(coluna)` sem `DISTINCT` sobre a tabela de transações ≡
+`AVG(valor_venda)` — mesmo defeito, já coberto pela regra existente do prompt, que já proíbe
+explicitamente esse padrão mesmo em contexto de "número sem tratamento de dedup para efeito de
+contraste"). Resultado: R$2.192.863,95 em vez do valor de contraste correto (que ainda deveria usar
+`COUNT(DISTINCT cliente_id)`, variando só como o id é agrupado, não a presença de `DISTINCT`).
+Diferente do erro do bug 1 original (que aparecia como o valor PRINCIPAL da resposta), aqui aparece
+como um valor SECUNDÁRIO de contraste dentro de uma resposta cujo valor principal (`ticket_medio_
+corrigido`) está correto — não invalida a validação 1 da Correção 2 acima, mas é uma variação nova
+do mesmo padrão de erro, num contexto (contraste "sem dedup") que a regra do bug 1 já deveria
+cobrir e, aparentemente, não cobriu desta vez.
+
+**Conforme instruído explicitamente: não foi feita uma terceira tentativa de ajuste de prompt para
+"consertar de vez"** — o padrão de 4 rodadas anteriores já mostrou que isso não generaliza bem sob
+pressão. Documentado aqui e no README (seção "Limitações conhecidas") como uma nova observação
+sobre o bug de ticket médio já existente (não um "bug 7" novo — é a mesma classe de erro, só um
+contexto de reprodução diferente), parando para decisão humana.
+
+### README atualizado
+
+- Removida a limitação "Assistente: 'descontando'/'excluindo' distratos filtra o denominador da
+  velocidade de vendas (Bug 6)" — confirmado corrigido e generalizado, sem regressão.
+- Mantida a limitação do ticket médio (valor principal agora correto quando a pergunta pede
+  diretamente o ticket médio, mas o padrão de erro ainda pode recorrer num contexto de contraste
+  "sem dedup" dentro da mesma resposta — texto da limitação atualizado para refletir isso, não
+  removido).
+
+### Verificação de qualidade
+
+`tsc --noEmit`, `eslint` (arquivo alterado), `prettier --check` (arquivo alterado) e `next build` —
+todos limpos, rodados depois de cada correção. Teste E2E persistido não rodado (fora do escopo);
+banco de trabalho não alterado (assistente é somente leitura).
